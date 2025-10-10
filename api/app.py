@@ -1,11 +1,8 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel
 from typing import Optional, List, Dict
 from datetime import datetime
-import trafilatura
-from readability import Document
-import requests
 import os
 from dotenv import load_dotenv
 import google.generativeai as genai
@@ -29,16 +26,6 @@ app.add_middleware(
 
 
 # Request/Response Models
-class IngestUrlRequest(BaseModel):
-    url: HttpUrl
-
-
-class IngestUrlResponse(BaseModel):
-    raw_text: str
-    title: str
-    source: str = "url"
-
-
 class ExtractRequirementsRequest(BaseModel):
     raw_text: str
 
@@ -77,77 +64,79 @@ async def health_check():
     }
 
 
-@app.post("/ingest_url", response_model=IngestUrlResponse)
-async def ingest_url(request: IngestUrlRequest):
-    """
-    Extract main text and title from a URL.
-    Primary: trafilatura (strips scripts/styles/nav automatically).
-    Fallback: readability-lxml.
-    """
-    url_str = str(request.url)
+def extract_with_gemini(raw_text: str, api_key: str) -> ExtractRequirementsResponse:
+    """Use Gemini AI to intelligently extract structured data from job posting."""
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel('gemini-2.0-flash-exp')
+
+    prompt = f"""You are an expert at analyzing job postings. Extract the following information from the job posting below:
+
+1. **Role/Title**: The job title or position name
+2. **Core Skills**: Required technical skills, tools, or technologies (list up to 10)
+3. **Nice-to-Have Skills**: Preferred/bonus skills mentioned (list up to 8)
+4. **Company Values**: Cultural values or soft skills emphasized (list up to 6)
+5. **Key Requirements**: Specific qualifications or experience requirements (list up to 10)
+
+Job Posting:
+{raw_text[:4000]}
+
+Return your response as JSON in this exact format:
+{{
+  "role": "Job Title Here",
+  "skills_core": ["skill1", "skill2", "skill3"],
+  "skills_nice": ["skill1", "skill2"],
+  "values": ["value1", "value2"],
+  "requirements": ["requirement1", "requirement2"]
+}}
+
+Guidelines:
+- For skills, extract specific technologies, programming languages, frameworks, tools
+- For values, look for soft skills, cultural fit, teamwork mentions
+- For requirements, extract concrete qualifications like years of experience, education, certifications
+- If a field cannot be determined, use an empty array
+- Return ONLY the JSON, no markdown code blocks or explanations"""
 
     try:
-        # Fetch the page
-        response = requests.get(url_str, timeout=10, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        })
-        response.raise_for_status()
-        html = response.text
+        response = model.generate_content(prompt)
+        response_text = response.text.strip()
 
-        # Primary: Try trafilatura first (best for stripping scripts/styles/nav)
-        raw_text = trafilatura.extract(
-            html,
-            include_comments=False,
-            include_tables=False,
-            no_fallback=False
+        # Remove markdown code blocks if present
+        if response_text.startswith("```json"):
+            response_text = response_text[7:]
+        if response_text.startswith("```"):
+            response_text = response_text[3:]
+        if response_text.endswith("```"):
+            response_text = response_text[:-3]
+        response_text = response_text.strip()
+
+        # Parse the JSON
+        data = json.loads(response_text)
+
+        return ExtractRequirementsResponse(
+            role=data.get("role", "Unknown Role"),
+            skills_core=data.get("skills_core", []),
+            skills_nice=data.get("skills_nice", []),
+            values=data.get("values", []),
+            requirements=data.get("requirements", [])
         )
 
-        # Fallback: Use readability-lxml if trafilatura returns insufficient content
-        if raw_text is None or len(raw_text.strip()) < 50:
-            import re
-            doc = Document(html)
-            raw_text = doc.summary(html_partial=False)
-            # Strip HTML tags from readability output
-            raw_text = re.sub(r'<[^>]+>', '', raw_text)
-            # Additional cleanup: remove extra whitespace
-            raw_text = re.sub(r'\s+', ' ', raw_text)
-
-        # Extract title
-        title = trafilatura.extract(html, output_format='json', include_comments=False)
-        if title:
-            import json
-            title_data = json.loads(title)
-            title = title_data.get('title', 'Untitled')
-        else:
-            doc = Document(html)
-            title = doc.title() or "Untitled"
-
-        # Check if extraction returned meaningful content
-        if not raw_text or len(raw_text.strip()) < 20:
-            raise HTTPException(
-                status_code=422,
-                detail="Could not extract meaningful text from URL. Try pasting the text directly instead."
-            )
-
-        return IngestUrlResponse(
-            raw_text=raw_text.strip(),
-            title=title,
-            source="url"
-        )
-
-    except HTTPException:
-        raise
-    except requests.RequestException as e:
-        raise HTTPException(status_code=400, detail=f"Failed to fetch URL: {str(e)}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Extraction failed: {str(e)}")
+        # Fallback to basic extraction if Gemini fails
+        print(f"Gemini extraction error: {str(e)}")
+        return ExtractRequirementsResponse(
+            role="Unknown Role",
+            skills_core=[],
+            skills_nice=[],
+            values=[],
+            requirements=[]
+        )
 
 
 @app.post("/extract_requirements", response_model=ExtractRequirementsResponse)
 async def extract_requirements(request: ExtractRequirementsRequest, demo: bool = False):
     """
     Extract structured requirements from raw job posting text.
-    Currently returns stub data; will be enhanced with NLP in next milestone.
+    Uses Gemini AI for intelligent, context-aware extraction.
 
     Query param ?demo=true returns stable sample data for offline demos.
     """
@@ -185,15 +174,16 @@ async def extract_requirements(request: ExtractRequirementsRequest, demo: bool =
             ]
         )
 
-    # TODO: Implement spaCy + sentence-transformers extraction
-    # For now, return stub shape
-    return ExtractRequirementsResponse(
-        role="Unknown",
-        skills_core=[],
-        skills_nice=[],
-        values=[],
-        requirements=[]
-    )
+    api_key = os.getenv("GEMINI_API_KEY")
+
+    if not api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="GEMINI_API_KEY not configured. Please add your API key to api/.env file."
+        )
+
+    # Use Gemini AI to extract structured data
+    return extract_with_gemini(request.raw_text, api_key)
 
 
 def generate_fallback_plan(extracted: ExtractRequirementsResponse) -> GeneratePlanResponse:

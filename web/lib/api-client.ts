@@ -1,11 +1,5 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
 
-export interface IngestUrlResponse {
-  raw_text: string
-  title: string
-  source: string
-}
-
 export interface ExtractRequirementsResponse {
   role: string
   skills_core: string[]
@@ -24,23 +18,6 @@ export interface Question {
 export interface GeneratePlanResponse {
   questions: Question[]
   rubric: Record<string, string[]>
-}
-
-export async function ingestUrl(url: string): Promise<IngestUrlResponse> {
-  const response = await fetch(`${API_BASE_URL}/ingest_url`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ url }),
-  })
-
-  if (!response.ok) {
-    const error = await response.json()
-    throw new Error(error.detail || 'Failed to ingest URL')
-  }
-
-  return response.json()
 }
 
 export async function extractRequirements(
