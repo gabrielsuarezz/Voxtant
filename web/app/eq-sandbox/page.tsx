@@ -1,13 +1,17 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { useWebcam } from '@/hooks/useWebcam'
 import { useEQ } from '@/hooks/useEQ'
 import { EQOverlay } from '@/components/eq/EQOverlay'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Logo } from '@/components/ui/logo'
+import { Play, Square, Eye, Activity, Shield, ArrowLeft } from 'lucide-react'
 
 export default function EQSandboxPage() {
+  const router = useRouter()
   const { videoRef, start: startWebcam, stop: stopWebcam, permissionState, error: webcamError } = useWebcam()
   const { metrics, start: startEQ, stop: stopEQ, isRunning, error: eqError } = useEQ(videoRef)
   const [isActive, setIsActive] = useState(false)
@@ -29,75 +33,120 @@ export default function EQSandboxPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 py-12 px-4">
+    <main className="min-h-screen py-12 px-4">
       <div className="container mx-auto max-w-6xl">
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold tracking-tight text-slate-900 mb-4">
-            EQ Sandbox
+        {/* Header */}
+        <div className="mb-8 flex items-center justify-between animate-fade-in">
+          <Button variant="outline" onClick={() => router.push('/')} className="gap-2">
+            <ArrowLeft className="w-4 h-4" />
+            Home
+          </Button>
+          <Logo size="sm" showText={true} />
+        </div>
+
+        {/* Title */}
+        <div className="mb-10 text-center animate-slide-up">
+          <h1 className="text-4xl font-bold tracking-tight mb-4">
+            <span className="gradient-text">EQ Metrics Sandbox</span>
           </h1>
-          <p className="text-lg text-slate-600">
-            Test real-time emotional intelligence metrics using on-device analysis.
+          <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+            Test real-time emotional intelligence analysis using advanced computer vision
           </p>
         </div>
 
         <div className="grid lg:grid-cols-2 gap-8">
           {/* Video Preview */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Live Video</CardTitle>
-              <CardDescription>
-                Camera feed for analysis (not recorded or transmitted)
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="relative bg-slate-900 rounded-lg overflow-hidden aspect-video">
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="w-full h-full object-cover"
-                />
-                {!isActive && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-slate-900/50">
-                    <p className="text-slate-300">Camera inactive</p>
+          <div className="animate-scale-in">
+            <Card className="glass-card border-2">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Eye className="w-5 h-5 text-primary" />
+                  Live Camera Feed
+                </CardTitle>
+                <CardDescription>
+                  All processing happens in-browser - nothing is recorded or sent anywhere
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="relative bg-gradient-to-br from-neutral-900 to-neutral-800 rounded-xl overflow-hidden aspect-video border-2 border-neutral-700">
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover"
+                  />
+                  {!isActive && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-neutral-900/70 backdrop-blur-sm">
+                      <Activity className="w-12 h-12 text-neutral-400 mb-3" />
+                      <p className="text-neutral-300 font-medium">Camera inactive</p>
+                      <p className="text-neutral-400 text-sm mt-1">Click Start to begin analysis</p>
+                    </div>
+                  )}
+                  {isActive && (
+                    <div className="absolute top-4 right-4 flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-500/90 backdrop-blur-sm animate-pulse">
+                      <div className="w-2 h-2 rounded-full bg-white"></div>
+                      <span className="text-white text-sm font-medium">Live</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-4 space-y-2">
+                  {webcamError && (
+                    <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20">
+                      <p className="text-sm text-destructive font-medium">{webcamError}</p>
+                    </div>
+                  )}
+                  {eqError && (
+                    <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20">
+                      <p className="text-sm text-destructive font-medium">{eqError}</p>
+                    </div>
+                  )}
+                  {permissionState === 'denied' && (
+                    <div className="p-3 rounded-lg bg-warning/10 border border-warning/20">
+                      <p className="text-sm text-foreground">
+                        Camera permission denied. Please enable camera access in your browser settings.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-6 grid grid-cols-2 gap-3">
+                  <Button
+                    onClick={handleStart}
+                    disabled={isActive}
+                    className="gap-2 h-12"
+                    size="lg"
+                  >
+                    <Play className="w-4 h-4" />
+                    Start
+                  </Button>
+                  <Button
+                    onClick={handleStop}
+                    disabled={!isActive}
+                    variant="outline"
+                    className="gap-2 h-12"
+                    size="lg"
+                  >
+                    <Square className="w-4 h-4" />
+                    Stop
+                  </Button>
+                </div>
+
+                {/* Privacy Note */}
+                <div className="mt-6 p-4 rounded-lg glass-card border flex items-start gap-3">
+                  <Shield className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="font-semibold text-sm mb-1">Privacy First</h4>
+                    <p className="text-xs text-muted-foreground">
+                      All analysis runs locally in your browser using MediaPipe and OpenCV.js.
+                      No video or images leave your device.
+                    </p>
                   </div>
-                )}
-              </div>
-
-              <div className="mt-4 space-y-2">
-                {webcamError && (
-                  <p className="text-sm text-red-600">{webcamError}</p>
-                )}
-                {eqError && (
-                  <p className="text-sm text-red-600">{eqError}</p>
-                )}
-                {permissionState === 'denied' && (
-                  <p className="text-sm text-amber-600">
-                    Camera permission denied. Please enable camera access in your browser settings.
-                  </p>
-                )}
-              </div>
-
-              <div className="mt-6 flex gap-4">
-                <Button
-                  onClick={handleStart}
-                  disabled={isActive}
-                  className="flex-1"
-                >
-                  Start
-                </Button>
-                <Button
-                  onClick={handleStop}
-                  disabled={!isActive}
-                  variant="outline"
-                  className="flex-1"
-                >
-                  Stop
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
 
           {/* EQ Metrics */}
           <div>

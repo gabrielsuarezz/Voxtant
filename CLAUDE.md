@@ -57,8 +57,9 @@ uvicorn app:app --host 0.0.0.0 --port $PORT
 Copy `.env.example` to `.env` (API) or `.env.local` (Web) and configure:
 - **API** (`api/.env`):
   - `ALLOWED_ORIGINS` - Comma-separated CORS origins (default: `http://localhost:3000`)
-  - `GEMINI_API_KEY` - Required for `/generate_plan` AI-generated questions (get from https://aistudio.google.com/app/apikey)
-    - Without this key, `/generate_plan` returns 3 deterministic fallback questions
+  - `GEMINI_API_KEY` - Required for AI-powered features (get from https://aistudio.google.com/app/apikey)
+    - Required for `/extract_requirements` (returns 500 error without key, unless `?demo=true`)
+    - Required for `/generate_plan` (returns 3 fallback questions without key)
 - **Web** (`web/.env.local`):
   - `NEXT_PUBLIC_API_BASE_URL` - FastAPI backend URL (default: `http://localhost:8000`)
 
@@ -77,12 +78,12 @@ cd web && npm run dev
 ## Architecture
 
 ### Data Flow
-1. **Input Stage**: User provides job posting via URL or pasted text
-   - URL: JobUrlForm calls `/ingest_url` endpoint → trafilatura/readability extracts text
-   - Text: JobTextForm directly calls `/extract_requirements` endpoint
+1. **Input Stage**: User provides job posting by pasting text
+   - JobTextForm directly calls `/extract_requirements` endpoint with raw text
+   - Note: URL ingestion was removed to focus on text paste functionality
 
 2. **Processing Stage**: Raw text → structured requirements
-   - `/extract_requirements` endpoint (currently stub, will use spaCy + NLP)
+   - `/extract_requirements` endpoint uses Gemini AI for intelligent extraction
    - Response: role, skills_core, skills_nice, values, requirements
 
 3. **Preview Stage**: Structured data stored in sessionStorage → rendered at `/preview`
@@ -97,9 +98,12 @@ cd web && npm run dev
 ### API Architecture (api/app.py)
 - **Endpoints:**
   - `GET /healthz` - Health check (returns `{ status: "ok", time: ISO8601 }`)
-  - `POST /ingest_url` - Extract text from URL (trafilatura → readability fallback)
-  - `POST /extract_requirements` - Extract structured data (TODO: implement NLP)
+  - `POST /extract_requirements` - Extract structured data using Gemini AI
+    - Input: `{ raw_text: string }`
     - Query param `?demo=true` - Returns stable sample data for offline demos
+    - Uses Gemini 2.5 Flash (`gemini-2.0-flash-exp`) to extract role, skills, values, requirements
+    - Returns 500 error if GEMINI_API_KEY not configured (unless `?demo=true`)
+    - Fallback: Returns empty arrays on Gemini API failure
   - `POST /generate_plan` - Generate interview questions and rubrics
     - Input: `{ extracted: ExtractRequirementsResponse, resume_text?: string }`
     - Query param `?demo=true` - Returns 4 stable demo questions with rubrics
@@ -109,12 +113,6 @@ cd web && npm run dev
     - Returns rubric with 3-5 evaluation criteria per question
     - Fallback: Returns 3 deterministic questions if GEMINI_API_KEY not set
 
-- **Text Extraction Strategy:**
-  - Primary: trafilatura (strips scripts/styles/nav automatically, `no_fallback=False`)
-  - Fallback: readability-lxml with regex cleanup (strips HTML tags, normalizes whitespace)
-  - Returns 422 with "Try pasting the text directly instead" if extraction yields <20 chars
-  - Title extracted via trafilatura JSON output, falls back to readability
-
 - **CORS Configuration:**
   - Defaults to `http://localhost:3000` if `ALLOWED_ORIGINS` not set
   - Supports comma-separated origins for multi-domain deployments
@@ -122,14 +120,14 @@ cd web && npm run dev
 
 ### Web Architecture
 - **App Router Structure:**
-  - `/` - Home page with dual input (URL + text paste)
+  - `/` - Home page with text paste input for job postings
   - `/preview` - Display extracted job data (sessionStorage-based)
   - `/plan` - Generate and display interview questions with rubrics
   - `/eq-sandbox` - EQ metrics testing sandbox with live webcam analysis
   - `/demo` - Presentation-ready demo mode with 4-step workflow
 
 - **Component Organization:**
-  - `components/job/` - Job input forms (JobUrlForm, JobTextForm)
+  - `components/job/` - Job input forms (JobTextForm)
   - `components/eq/` - EQ overlay and metrics display
   - `components/ui/` - shadcn/ui primitives
   - `lib/api-client.ts` - Typed FastAPI client functions
@@ -257,13 +255,20 @@ Presentation-ready demo workflow for offline/live presentations:
 - TypeScript interfaces defined in `web/lib/api-client.ts`
 - Pydantic models in `api/app.py` (BaseModel subclasses)
 - Shared schemas:
-  - `IngestUrlResponse` - URL extraction results
+  - `ExtractRequirementsRequest` - Raw job posting text input
   - `ExtractRequirementsResponse` - Structured job requirements
   - `Question` - Interview question with id, type, text, targets[]
+  - `GeneratePlanRequest` - Extracted data + optional resume text
   - `GeneratePlanResponse` - questions[] + rubric{} mapping
 - EQ metrics: `{ gazeStability: number, blinkRatePerMin: number, expressionVariance: number }`
 
 ## Important Notes
+
+### Recent Changes
+- Removed URL ingestion functionality - now focused on text paste only
+- Implemented Gemini AI extraction in `/extract_requirements` endpoint
+- Both `/extract_requirements` and `/generate_plan` now use `gemini-2.0-flash-exp` model
+- Added fallback behavior: `/extract_requirements` returns empty arrays on failure, `/generate_plan` returns deterministic questions
 
 ### Git Commit Style
 Per `.claude.md` preferences:
@@ -273,9 +278,7 @@ Per `.claude.md` preferences:
 - User should be sole contributor on GitHub
 
 ### Current Limitations
-- `/extract_requirements` returns stub data (TODO: spaCy/NLP implementation in api/app.py)
-  - Currently using stub data for structured extraction
-  - `/generate_plan` works with real or stub data
+- Requires GEMINI_API_KEY for full functionality (or use `?demo=true` for presentations)
 - No database/persistence layer (sessionStorage only for job data)
 - EQ metrics use simplified algorithms (gaze via eye landmark variance, expression via blendshape categories)
 - FaceLandmarker supports 1 face max in current configuration

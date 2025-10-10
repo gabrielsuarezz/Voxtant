@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Logo } from '@/components/ui/logo'
+import { ArrowLeft, CheckCircle2, Sparkles } from 'lucide-react'
 
 interface JobData {
   raw_text: string
@@ -32,54 +35,167 @@ export default function PreviewPage() {
   if (!jobData) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <p className="text-slate-600">Loading...</p>
+        <div className="flex flex-col items-center gap-4">
+          <Logo size="lg" showText={false} />
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
       </div>
     )
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 py-12 px-4">
-      <div className="container mx-auto max-w-4xl">
-        <div className="mb-8">
-          <Button variant="outline" onClick={() => router.push('/')}>
-            Back to Import
+    <main className="min-h-screen py-12 px-4">
+      <div className="container mx-auto max-w-5xl">
+        {/* Header */}
+        <div className="mb-8 flex items-center justify-between animate-fade-in">
+          <Button
+            variant="outline"
+            onClick={() => router.push('/')}
+            className="gap-2"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back
           </Button>
+          <Logo size="sm" showText={true} />
         </div>
 
-        <Card className="mb-8">
+        {/* Title Card */}
+        <Card className="mb-8 glass-card border-2 animate-slide-up">
           <CardHeader>
-            <CardTitle>{jobData.title}</CardTitle>
-            <CardDescription>
-              Source: {jobData.source === 'url' ? 'URL' : 'Pasted Text'}
-            </CardDescription>
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="w-6 h-6 text-primary mt-1 flex-shrink-0" />
+              <div>
+                <CardTitle className="text-2xl mb-2">{jobData.role || jobData.title}</CardTitle>
+                <CardDescription className="text-base">
+                  Successfully extracted job requirements
+                </CardDescription>
+              </div>
+            </div>
           </CardHeader>
         </Card>
 
-        <Card className="mb-8">
-          <CardHeader>
-            <CardTitle>Extracted Data</CardTitle>
-            <CardDescription>
-              JSON representation of extracted job requirements
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <pre className="bg-slate-900 text-slate-50 p-4 rounded-lg overflow-x-auto text-sm">
-              {JSON.stringify(jobData, null, 2)}
-            </pre>
-          </CardContent>
-        </Card>
+        {/* Extracted Data Display */}
+        <div className="grid gap-6 mb-8">
+          {/* Core Skills */}
+          {jobData.skills_core.length > 0 && (
+            <Card className="glass-card border-2 animate-slide-up" style={{ animationDelay: '0.1s' }}>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-primary"></div>
+                  Core Skills
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-2 stagger-fade-in">
+                  {jobData.skills_core.map((skill, index) => (
+                    <Badge
+                      key={index}
+                      className="bg-primary/10 text-primary border-primary/20 hover:bg-primary/20 transition-colors"
+                    >
+                      {skill}
+                    </Badge>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
-        <Card>
+          {/* Nice-to-Have Skills */}
+          {jobData.skills_nice.length > 0 && (
+            <Card className="glass-card border-2 animate-slide-up" style={{ animationDelay: '0.2s' }}>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: 'hsl(175, 75%, 45%)' }}></div>
+                  Nice-to-Have Skills
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-2 stagger-fade-in">
+                  {jobData.skills_nice.map((skill, index) => (
+                    <Badge
+                      key={index}
+                      variant="outline"
+                      className="border-2"
+                      style={{
+                        borderColor: 'hsl(175, 85%, 45%)',
+                        color: 'hsl(175, 85%, 45%)',
+                        backgroundColor: 'hsl(175, 85%, 45%, 0.1)'
+                      }}
+                    >
+                      {skill}
+                    </Badge>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Values */}
+          {jobData.values.length > 0 && (
+            <Card className="glass-card border-2 animate-slide-up" style={{ animationDelay: '0.3s' }}>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: 'hsl(270, 65%, 55%)' }}></div>
+                  Company Values
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-2 stagger-fade-in">
+                  {jobData.values.map((value, index) => (
+                    <Badge
+                      key={index}
+                      variant="outline"
+                      className="border-2"
+                      style={{
+                        borderColor: 'hsl(270, 80%, 60%)',
+                        color: 'hsl(270, 80%, 60%)',
+                        backgroundColor: 'hsl(270, 80%, 60%, 0.1)'
+                      }}
+                    >
+                      {value}
+                    </Badge>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Requirements */}
+          {jobData.requirements.length > 0 && (
+            <Card className="glass-card border-2 animate-slide-up" style={{ animationDelay: '0.4s' }}>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-foreground/60"></div>
+                  Key Requirements
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-3">
+                  {jobData.requirements.map((req, index) => (
+                    <li key={index} className="flex items-start gap-3 text-sm animate-fade-in" style={{ animationDelay: `${0.1 * index}s` }}>
+                      <CheckCircle2 className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+                      <span className="text-foreground/80">{req}</span>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+
+        {/* CTA Button */}
+        <Card className="glass-card border-2 animate-scale-in" style={{ animationDelay: '0.5s' }}>
           <CardContent className="py-6">
             <Button
               size="lg"
-              className="w-full"
+              className="w-full text-lg h-14 gap-2 shadow-lg hover:shadow-xl transition-all duration-300 animate-glow"
               onClick={() => router.push('/plan')}
             >
+              <Sparkles className="w-5 h-5" />
               Generate Interview Plan
             </Button>
-            <p className="text-xs text-slate-500 text-center mt-3">
-              Create tailored interview questions and rubrics
+            <p className="text-sm text-muted-foreground text-center mt-4">
+              Create AI-powered questions tailored to this role
             </p>
           </CardContent>
         </Card>

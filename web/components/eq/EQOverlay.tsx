@@ -3,6 +3,9 @@
  * Shows gaze stability, blink rate, and expression variance with visual meters.
  */
 
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Activity, Eye, Smile } from 'lucide-react'
+
 interface EQMetrics {
   gazeStability: number
   blinkRatePerMin: number
@@ -15,71 +18,101 @@ interface EQOverlayProps {
 
 export function EQOverlay({ metrics }: EQOverlayProps) {
   return (
-    <div className="bg-white/95 backdrop-blur-sm rounded-lg p-6 shadow-lg border border-slate-200">
-      <h3 className="text-lg font-semibold text-slate-900 mb-4">
-        EQ Metrics
-      </h3>
-
-      <div className="space-y-4">
-        {/* Gaze Stability */}
-        <div>
-          <div className="flex justify-between items-center mb-2">
-            <label className="text-sm font-medium text-slate-700">
-              Gaze Stability
-            </label>
-            <span className="text-sm text-slate-600">
+    <div className="space-y-4 animate-fade-in">
+      {/* Gaze Stability */}
+      <Card className="glass-card border-2 hover:shadow-lg transition-all duration-300">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Eye className="w-5 h-5 text-primary" />
+              <CardTitle className="text-lg">Gaze Stability</CardTitle>
+            </div>
+            <span className="text-2xl font-bold text-primary">
               {(metrics.gazeStability * 100).toFixed(0)}%
             </span>
           </div>
-          <div className="w-full bg-slate-200 rounded-full h-2.5">
+          <CardDescription className="text-xs mt-1">
+            Measures focus and confidence through eye position steadiness
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="relative w-full bg-neutral-200 rounded-full h-3 overflow-hidden">
             <div
-              className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
-              style={{ width: `${metrics.gazeStability * 100}%` }}
+              className="absolute top-0 left-0 h-full rounded-full transition-all duration-500 ease-out animate-meter-fill"
+              style={{
+                width: `${metrics.gazeStability * 100}%`,
+                background: 'linear-gradient(90deg, hsl(200, 100%, 45%), hsl(175, 75%, 45%))'
+              }}
             />
           </div>
-        </div>
+        </CardContent>
+      </Card>
 
-        {/* Blink Rate */}
-        <div>
-          <div className="flex justify-between items-center mb-2">
-            <label className="text-sm font-medium text-slate-700">
-              Blink Rate
-            </label>
-            <span className="text-sm text-slate-600">
-              {metrics.blinkRatePerMin.toFixed(0)} /min
+      {/* Blink Rate */}
+      <Card className="glass-card border-2 hover:shadow-lg transition-all duration-300">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Activity className="w-5 h-5" style={{ color: 'hsl(175, 85%, 45%)' }} />
+              <CardTitle className="text-lg">Blink Rate</CardTitle>
+            </div>
+            <span className="text-2xl font-bold" style={{ color: 'hsl(175, 85%, 45%)' }}>
+              {metrics.blinkRatePerMin.toFixed(0)}
+              <span className="text-sm text-muted-foreground ml-1">/min</span>
             </span>
           </div>
-          <div className="w-full bg-slate-200 rounded-full h-2.5">
+          <CardDescription className="text-xs mt-1">
+            Normal range: 15-20 blinks/min · Indicates stress or concentration levels
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="relative w-full bg-neutral-800 rounded-full h-3 overflow-hidden">
             <div
-              className="bg-green-600 h-2.5 rounded-full transition-all duration-300"
-              style={{ width: `${Math.min(100, (metrics.blinkRatePerMin / 30) * 100)}%` }}
+              className="absolute top-0 left-0 h-full rounded-full transition-all duration-500 ease-out animate-meter-fill"
+              style={{
+                width: `${Math.min(100, (metrics.blinkRatePerMin / 30) * 100)}%`,
+                backgroundColor: 'hsl(175, 85%, 45%)'
+              }}
             />
           </div>
-          <p className="text-xs text-slate-500 mt-1">Normal: 15-20 blinks/min</p>
-        </div>
+        </CardContent>
+      </Card>
 
-        {/* Expression Variance */}
-        <div>
-          <div className="flex justify-between items-center mb-2">
-            <label className="text-sm font-medium text-slate-700">
-              Expression Variance
-            </label>
-            <span className="text-sm text-slate-600">
+      {/* Expression Variance */}
+      <Card className="glass-card border-2 hover:shadow-lg transition-all duration-300">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Smile className="w-5 h-5" style={{ color: 'hsl(270, 80%, 60%)' }} />
+              <CardTitle className="text-lg">Expression Variance</CardTitle>
+            </div>
+            <span className="text-2xl font-bold" style={{ color: 'hsl(270, 80%, 60%)' }}>
               {(metrics.expressionVariance * 100).toFixed(0)}%
             </span>
           </div>
-          <div className="w-full bg-slate-200 rounded-full h-2.5">
+          <CardDescription className="text-xs mt-1">
+            Facial expression diversity · Higher values show better engagement
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="relative w-full bg-neutral-800 rounded-full h-3 overflow-hidden">
             <div
-              className="bg-purple-600 h-2.5 rounded-full transition-all duration-300"
-              style={{ width: `${metrics.expressionVariance * 100}%` }}
+              className="absolute top-0 left-0 h-full rounded-full transition-all duration-500 ease-out animate-meter-fill"
+              style={{
+                width: `${metrics.expressionVariance * 100}%`,
+                backgroundColor: 'hsl(270, 80%, 60%)'
+              }}
             />
           </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
-      <p className="mt-6 text-xs text-slate-500 italic border-t border-slate-200 pt-4">
-        These metrics are for coaching, not judgment. They help you understand your non-verbal communication patterns.
-      </p>
+      {/* Info Note */}
+      <div className="p-4 rounded-lg glass-card border text-center">
+        <p className="text-sm text-muted-foreground">
+          These metrics provide coaching insights to help you improve your non-verbal communication
+        </p>
+      </div>
     </div>
   )
 }
