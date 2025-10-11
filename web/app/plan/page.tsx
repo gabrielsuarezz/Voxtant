@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Logo } from '@/components/ui/logo'
 import { generatePlan, type ExtractRequirementsResponse, type GeneratePlanResponse } from '@/lib/api-client'
+import { useInterviewStore } from '@/store/interview-store'
 import { Loader2, ArrowLeft, Sparkles, Target, PlayCircle } from 'lucide-react'
 
 interface JobData {
@@ -27,6 +28,7 @@ export default function PlanPage() {
   const [error, setError] = useState<string | null>(null)
   const [expandedRubric, setExpandedRubric] = useState<string | null>(null)
   const router = useRouter()
+  const { setPlan: setStorePlan, setJobGraph } = useInterviewStore()
 
   useEffect(() => {
     const loadDataAndGeneratePlan = async () => {
@@ -53,6 +55,8 @@ export default function PlanPage() {
 
         const generatedPlan = await generatePlan(extracted)
         setPlan(generatedPlan)
+        setStorePlan(generatedPlan)
+        setJobGraph(extracted)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to generate plan')
       } finally {
@@ -228,9 +232,7 @@ export default function PlanPage() {
                 <Button
                   size="lg"
                   className="w-full text-lg h-14 gap-3 shadow-lg hover:shadow-xl transition-all duration-300"
-                  onClick={() => {
-                    alert('Interview feature coming soon!')
-                  }}
+                  onClick={() => router.push('/interview')}
                 >
                   <PlayCircle className="w-5 h-5" />
                   Start Mock Interview

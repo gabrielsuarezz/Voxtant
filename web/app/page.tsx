@@ -56,7 +56,7 @@ export default function Home() {
 
         {/* How it works section */}
         <div className="mt-16 grid md:grid-cols-3 gap-6 stagger-fade-in">
-          <div className="text-center p-6 rounded-xl glass-card border-2 border-primary/20 hover:border-primary/40 transition-all duration-300">
+          <div className="text-center p-6 rounded-xl glass-card border-2 border-primary/30 hover:border-primary/50 transition-all duration-300">
             <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-4">
               <span className="text-2xl font-bold text-primary">1</span>
             </div>
@@ -66,7 +66,7 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="text-center p-6 rounded-xl glass-card border-2 hover:border-opacity-60 transition-all duration-300" style={{ borderColor: 'hsl(175, 85%, 45%, 0.2)' }}>
+          <div className="text-center p-6 rounded-xl glass-card border-2 transition-all duration-300" style={{ borderColor: 'hsl(175, 85%, 45%, 0.3)' }}>
             <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: 'hsl(175, 85%, 45%, 0.2)' }}>
               <span className="text-2xl font-bold" style={{ color: 'hsl(175, 85%, 45%)' }}>2</span>
             </div>
@@ -76,7 +76,7 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="text-center p-6 rounded-xl glass-card border-2 hover:border-opacity-60 transition-all duration-300" style={{ borderColor: 'hsl(270, 80%, 60%, 0.2)' }}>
+          <div className="text-center p-6 rounded-xl glass-card border-2 transition-all duration-300" style={{ borderColor: 'hsl(270, 80%, 60%, 0.3)' }}>
             <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: 'hsl(270, 80%, 60%, 0.2)' }}>
               <span className="text-2xl font-bold" style={{ color: 'hsl(270, 80%, 60%)' }}>3</span>
             </div>

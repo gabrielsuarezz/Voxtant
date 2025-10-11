@@ -152,27 +152,27 @@ export default function EQSandboxPage() {
           <div>
             <EQOverlay metrics={metrics} />
 
-            <Card className="mt-8">
+            <Card className="mt-8 glass-card border-2">
               <CardHeader>
                 <CardTitle>About EQ Metrics</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4 text-sm text-slate-600">
+              <CardContent className="space-y-4 text-sm text-muted-foreground">
                 <div>
-                  <h4 className="font-semibold text-slate-900 mb-1">Gaze Stability</h4>
+                  <h4 className="font-semibold text-foreground mb-1">Gaze Stability</h4>
                   <p>
                     Measures how steady your eye position is. Higher stability indicates focused attention
                     and confidence. Low stability may suggest nervousness or distraction.
                   </p>
                 </div>
                 <div>
-                  <h4 className="font-semibold text-slate-900 mb-1">Blink Rate</h4>
+                  <h4 className="font-semibold text-foreground mb-1">Blink Rate</h4>
                   <p>
                     Tracks blinks per minute. Normal range is 15-20 blinks/min. Higher rates may indicate
                     stress or fatigue, while lower rates suggest intense concentration.
                   </p>
                 </div>
                 <div>
-                  <h4 className="font-semibold text-slate-900 mb-1">Expression Variance</h4>
+                  <h4 className="font-semibold text-foreground mb-1">Expression Variance</h4>
                   <p>
                     Measures facial expression diversity. Higher variance shows emotional expressiveness,
                     which often improves communication and engagement.
@@ -181,9 +181,9 @@ export default function EQSandboxPage() {
               </CardContent>
             </Card>
 
-            <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-              <h4 className="font-semibold text-blue-900 mb-2">Privacy Note</h4>
-              <p className="text-sm text-blue-800">
+            <div className="mt-6 p-4 glass-card rounded-lg border-2 border-primary/30">
+              <h4 className="font-semibold text-foreground mb-2">Technical Details</h4>
+              <p className="text-sm text-muted-foreground">
                 All analysis happens in your browser. No video or images leave your device.
                 Metrics are computed using MediaPipe and OpenCV.js running locally.
               </p>

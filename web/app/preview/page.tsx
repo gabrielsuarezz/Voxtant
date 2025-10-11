@@ -105,7 +105,7 @@ export default function PreviewPage() {
             <Card className="glass-card border-2 animate-slide-up" style={{ animationDelay: '0.2s' }}>
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: 'hsl(175, 75%, 45%)' }}></div>
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: 'hsl(175, 85%, 45%)' }}></div>
                   Nice-to-Have Skills
                 </CardTitle>
               </CardHeader>
@@ -135,7 +135,7 @@ export default function PreviewPage() {
             <Card className="glass-card border-2 animate-slide-up" style={{ animationDelay: '0.3s' }}>
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: 'hsl(270, 65%, 55%)' }}></div>
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: 'hsl(270, 80%, 60%)' }}></div>
                   Company Values
                 </CardTitle>
               </CardHeader>
@@ -172,9 +172,9 @@ export default function PreviewPage() {
               <CardContent>
                 <ul className="space-y-3">
                   {jobData.requirements.map((req, index) => (
-                    <li key={index} className="flex items-start gap-3 text-sm animate-fade-in" style={{ animationDelay: `${0.1 * index}s` }}>
+                    <li key={req.id || index} className="flex items-start gap-3 text-sm animate-fade-in" style={{ animationDelay: `${0.1 * index}s` }}>
                       <CheckCircle2 className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
-                      <span className="text-foreground/80">{req}</span>
+                      <span className="text-foreground/80">{typeof req === 'string' ? req : req.text}</span>
                     </li>
                   ))}
                 </ul>

@@ -6,7 +6,13 @@
       "Bash(test:*)",
       "Bash(python:*)",
       "Bash(.venv/Scripts/python.exe -m pip install:*)",
-      "Bash(.venv/Scripts/pip.exe install:*)"
+      "Bash(.venv/Scripts/pip.exe install:*)",
+      "Bash(curl:*)",
+      "Bash(taskkill:*)",
+      "Bash(.venvScriptspython.exe -m uvicorn app:app --reload --port 8000)",
+      "Bash(.venv/Scripts/uvicorn.exe:*)",
+      "Bash(.venv/Scripts/python.exe:*)",
+      "Read(//c/**)"
     ],
     "deny": [],
     "ask": []

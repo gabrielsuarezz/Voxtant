@@ -30,12 +30,17 @@ class ExtractRequirementsRequest(BaseModel):
     raw_text: str
 
 
+class Requirement(BaseModel):
+    id: str
+    text: str
+
+
 class ExtractRequirementsResponse(BaseModel):
     role: str
     skills_core: List[str]
     skills_nice: List[str]
     values: List[str]
-    requirements: List[str]
+    requirements: List[Requirement]
 
 
 class Question(BaseModel):
@@ -53,6 +58,41 @@ class GeneratePlanRequest(BaseModel):
 class GeneratePlanResponse(BaseModel):
     questions: List[Question]
     rubric: Dict[str, List[str]]  # question_id -> list of rubric criteria
+
+
+class DeliveryMetrics(BaseModel):
+    wordsPerMin: float
+    pauseRatio: float
+    fillerPerMin: float
+
+
+class EQMetrics(BaseModel):
+    gazeStability: float
+    blinkRatePerMin: float
+    expressionVariance: float
+
+
+class GradeAnswerRequest(BaseModel):
+    qid: str
+    transcript: str
+    timings: DeliveryMetrics
+    eq: EQMetrics
+    job_graph: ExtractRequirementsResponse
+
+
+class STARScore(BaseModel):
+    S: float  # 0-1 score for Situation
+    T: float  # 0-1 score for Task
+    A: float  # 0-1 score for Action
+    R: float  # 0-1 score for Result
+
+
+class GradeAnswerResponse(BaseModel):
+    content_score: float  # 0-1 score based on semantic relevance
+    star: STARScore
+    delivery: DeliveryMetrics
+    eq: EQMetrics
+    tips: List[str]  # Personalized improvement tips
 
 
 # Routes
@@ -133,10 +173,10 @@ Guidelines:
 
 
 @app.post("/extract_requirements", response_model=ExtractRequirementsResponse)
-async def extract_requirements(request: ExtractRequirementsRequest, demo: bool = False):
+async def extract_requirements_endpoint(request: ExtractRequirementsRequest, demo: bool = False):
     """
     Extract structured requirements from raw job posting text.
-    Uses Gemini AI for intelligent, context-aware extraction.
+    Uses NLP (spaCy + sentence-transformers) for skills extraction.
 
     Query param ?demo=true returns stable sample data for offline demos.
     """
@@ -166,24 +206,51 @@ async def extract_requirements(request: ExtractRequirementsRequest, demo: bool =
                 "Continuous learning"
             ],
             requirements=[
-                "5+ years of experience in full-stack development",
-                "Strong understanding of frontend and backend architecture",
-                "Experience with database design and optimization",
-                "Excellent communication and teamwork skills",
-                "Passion for building scalable, maintainable systems"
+                Requirement(id="req_1", text="5+ years of experience in full-stack development"),
+                Requirement(id="req_2", text="Strong understanding of frontend and backend architecture"),
+                Requirement(id="req_3", text="Experience with database design and optimization"),
+                Requirement(id="req_4", text="Excellent communication and teamwork skills"),
+                Requirement(id="req_5", text="Passion for building scalable, maintainable systems")
             ]
         )
 
-    api_key = os.getenv("GEMINI_API_KEY")
+    # Import NLP extraction function
+    try:
+        from nlp import extract_requirements as nlp_extract
+        result = nlp_extract(request.raw_text)
 
-    if not api_key:
-        raise HTTPException(
-            status_code=500,
-            detail="GEMINI_API_KEY not configured. Please add your API key to api/.env file."
+        # Convert to response model
+        return ExtractRequirementsResponse(
+            role=result["role"],
+            skills_core=result["skills_core"],
+            skills_nice=result["skills_nice"],
+            values=result["values"],
+            requirements=[Requirement(**req) for req in result["requirements"]]
         )
+    except Exception as e:
+        # Fallback to Gemini if NLP fails
+        print(f"NLP extraction error: {str(e)}")
+        api_key = os.getenv("GEMINI_API_KEY")
 
-    # Use Gemini AI to extract structured data
-    return extract_with_gemini(request.raw_text, api_key)
+        if api_key:
+            gemini_result = extract_with_gemini(request.raw_text, api_key)
+            # Convert requirements to Requirement objects
+            requirements = [
+                Requirement(id=f"req_{i+1}", text=req)
+                for i, req in enumerate(gemini_result.requirements)
+            ]
+            return ExtractRequirementsResponse(
+                role=gemini_result.role,
+                skills_core=gemini_result.skills_core,
+                skills_nice=gemini_result.skills_nice,
+                values=gemini_result.values,
+                requirements=requirements
+            )
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail=f"NLP extraction failed and no GEMINI_API_KEY configured: {str(e)}"
+            )
 
 
 def generate_fallback_plan(extracted: ExtractRequirementsResponse) -> GeneratePlanResponse:
@@ -192,7 +259,7 @@ def generate_fallback_plan(extracted: ExtractRequirementsResponse) -> GeneratePl
     """
     role = extracted.role or "this role"
     skills = extracted.skills_core + extracted.skills_nice
-    requirements = extracted.requirements
+    req_texts = [req.text for req in extracted.requirements] if extracted.requirements else []
 
     # Create a mix of behavioral and technical questions
     questions = [
@@ -200,7 +267,7 @@ def generate_fallback_plan(extracted: ExtractRequirementsResponse) -> GeneratePl
             id="q1",
             type="behavioral",
             text=f"Tell me about a time you demonstrated leadership or took initiative on a project. How did you approach it, and what was the outcome?",
-            targets=["leadership", "initiative"] + (requirements[:1] if requirements else [])
+            targets=["leadership", "initiative"] + (req_texts[:1] if req_texts else [])
         ),
         Question(
             id="q2",
@@ -212,7 +279,7 @@ def generate_fallback_plan(extracted: ExtractRequirementsResponse) -> GeneratePl
             id="q3",
             type="behavioral",
             text=f"Describe a challenging situation where you had to collaborate with others to solve a problem. What was your role and how did you contribute?",
-            targets=["collaboration", "problem-solving"] + (requirements[1:2] if len(requirements) > 1 else [])
+            targets=["collaboration", "problem-solving"] + (req_texts[1:2] if len(req_texts) > 1 else [])
         ),
     ]
 
@@ -252,7 +319,7 @@ def generate_gemini_plan(extracted: ExtractRequirementsResponse, resume_text: Op
     skills_core = ", ".join(extracted.skills_core) if extracted.skills_core else "None specified"
     skills_nice = ", ".join(extracted.skills_nice) if extracted.skills_nice else "None specified"
     values = ", ".join(extracted.values) if extracted.values else "None specified"
-    requirements = "\n".join(f"- {req}" for req in extracted.requirements) if extracted.requirements else "None specified"
+    requirements = "\n".join(f"- {req.text}" for req in extracted.requirements) if extracted.requirements else "None specified"
 
     resume_context = ""
     if resume_text:
@@ -407,3 +474,53 @@ async def generate_plan(request: GeneratePlanRequest, demo: bool = False):
 
     # Use Gemini to generate questions
     return generate_gemini_plan(request.extracted, request.resume_text, api_key)
+
+
+@app.post("/grade_answer", response_model=GradeAnswerResponse)
+async def grade_answer(request: GradeAnswerRequest):
+    """
+    Grade an interview answer based on content, STAR framework, delivery, and EQ metrics.
+    Returns scores and personalized improvement tips.
+    """
+    try:
+        from grading_simple import compute_content_score, compute_star_score, generate_tips
+
+        # Extract job context
+        req_texts = [req.text for req in request.job_graph.requirements]
+        core_skills = request.job_graph.skills_core
+
+        # Compute content relevance score
+        content_score = compute_content_score(request.transcript, req_texts, core_skills)
+
+        # Compute STAR framework scores
+        s, t, a, r = compute_star_score(request.transcript)
+        star_score = STARScore(S=s, T=t, A=a, R=r)
+
+        # Generate personalized tips
+        tips = generate_tips(
+            request.transcript,
+            content_score,
+            (s, t, a, r),
+            request.timings.wordsPerMin,
+            request.timings.pauseRatio,
+            request.timings.fillerPerMin,
+            request.eq.gazeStability,
+            request.eq.blinkRatePerMin,
+            request.eq.expressionVariance
+        )
+
+        return GradeAnswerResponse(
+            content_score=content_score,
+            star=star_score,
+            delivery=request.timings,
+            eq=request.eq,
+            tips=tips
+        )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Grading error: {str(e)}"
+        )
+
+

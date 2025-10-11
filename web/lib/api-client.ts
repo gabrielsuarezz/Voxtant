@@ -1,11 +1,16 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'
 
+export interface Requirement {
+  id: string
+  text: string
+}
+
 export interface ExtractRequirementsResponse {
   role: string
   skills_core: string[]
   skills_nice: string[]
   values: string[]
-  requirements: string[]
+  requirements: Requirement[]
 }
 
 export interface Question {
@@ -18,6 +23,33 @@ export interface Question {
 export interface GeneratePlanResponse {
   questions: Question[]
   rubric: Record<string, string[]>
+}
+
+export interface DeliveryMetrics {
+  wordsPerMin: number
+  pauseRatio: number
+  fillerPerMin: number
+}
+
+export interface EQMetrics {
+  gazeStability: number
+  blinkRatePerMin: number
+  expressionVariance: number
+}
+
+export interface STARScore {
+  S: number
+  T: number
+  A: number
+  R: number
+}
+
+export interface GradeAnswerResponse {
+  content_score: number
+  star: STARScore
+  delivery: DeliveryMetrics
+  eq: EQMetrics
+  tips: string[]
 }
 
 export async function extractRequirements(
@@ -66,6 +98,35 @@ export async function generatePlan(
   if (!response.ok) {
     const error = await response.json()
     throw new Error(error.detail || 'Failed to generate plan')
+  }
+
+  return response.json()
+}
+
+export async function gradeAnswer(
+  qid: string,
+  transcript: string,
+  timings: DeliveryMetrics,
+  eq: EQMetrics,
+  job_graph: ExtractRequirementsResponse
+): Promise<GradeAnswerResponse> {
+  const response = await fetch(`${API_BASE_URL}/grade_answer`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      qid,
+      transcript,
+      timings,
+      eq,
+      job_graph
+    }),
+  })
+
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || 'Failed to grade answer')
   }
 
   return response.json()
