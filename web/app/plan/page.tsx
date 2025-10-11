@@ -28,7 +28,7 @@ export default function PlanPage() {
   const [error, setError] = useState<string | null>(null)
   const [expandedRubric, setExpandedRubric] = useState<string | null>(null)
   const router = useRouter()
-  const { setPlan: setStorePlan, setJobGraph } = useInterviewStore()
+  const { setPlan: setStorePlan, setJobGraph, setCurrentQuestion } = useInterviewStore()
 
   useEffect(() => {
     const loadDataAndGeneratePlan = async () => {
@@ -232,7 +232,11 @@ export default function PlanPage() {
                 <Button
                   size="lg"
                   className="w-full text-lg h-14 gap-3 shadow-lg hover:shadow-xl transition-all duration-300"
-                  onClick={() => router.push('/interview')}
+                  onClick={() => {
+                    // Reset to first question when starting interview
+                    setCurrentQuestion(null)
+                    router.push('/interview')
+                  }}
                 >
                   <PlayCircle className="w-5 h-5" />
                   Start Mock Interview

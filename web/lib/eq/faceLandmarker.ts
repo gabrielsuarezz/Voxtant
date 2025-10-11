@@ -61,6 +61,8 @@ interface EQMetrics {
   gazeStability: number      // 0..1 (1 = stable)
   blinkRatePerMin: number    // estimated blinks per minute
   expressionVariance: number // 0..1 (higher = more varied)
+  isLookingAtCamera: boolean // true if user is looking at camera
+  gazeDirection: { x: number, y: number } // -1..1 range, (0,0) = center/camera
 }
 
 let lastVideoTime = -1
@@ -75,7 +77,9 @@ export async function analyzeVideoFrame(videoEl: HTMLVideoElement): Promise<EQMe
     return {
       gazeStability: 0.5,
       blinkRatePerMin: 0,
-      expressionVariance: 0
+      expressionVariance: 0,
+      isLookingAtCamera: false,
+      gazeDirection: { x: 0, y: 0 }
     }
   }
   lastVideoTime = videoEl.currentTime
@@ -87,7 +91,9 @@ export async function analyzeVideoFrame(videoEl: HTMLVideoElement): Promise<EQMe
     return {
       gazeStability: 0,
       blinkRatePerMin: 0,
-      expressionVariance: 0
+      expressionVariance: 0,
+      isLookingAtCamera: false,
+      gazeDirection: { x: 0, y: 0 }
     }
   }
 
@@ -100,10 +106,15 @@ export async function analyzeVideoFrame(videoEl: HTMLVideoElement): Promise<EQMe
   // Calculate expression variance
   const expressionVariance = calculateExpressionVariance(results)
 
+  // Calculate gaze direction and camera focus
+  const { isLookingAtCamera, gazeDirection } = calculateGazeDirection(results)
+
   return {
     gazeStability,
     blinkRatePerMin,
-    expressionVariance
+    expressionVariance,
+    isLookingAtCamera,
+    gazeDirection
   }
 }
 
@@ -208,4 +219,60 @@ function calculateExpressionVariance(results: FaceLandmarkerResult): number {
     : 0
 
   return Math.max(0, Math.min(1, variance))
+}
+
+function calculateGazeDirection(results: FaceLandmarkerResult): { isLookingAtCamera: boolean, gazeDirection: { x: number, y: number } } {
+  const landmarks = results.faceLandmarks[0]
+  if (!landmarks) {
+    return { isLookingAtCamera: false, gazeDirection: { x: 0, y: 0 } }
+  }
+
+  // Use iris landmarks for accurate gaze tracking
+  // MediaPipe iris landmarks: left iris center (468-473), right iris center (473-478)
+  // Eye corner landmarks: left eye (33, 133), right eye (362, 263)
+
+  // Left eye analysis
+  const leftEyeInner = landmarks[133]  // Left eye inner corner
+  const leftEyeOuter = landmarks[33]   // Left eye outer corner
+  const leftIrisCenter = landmarks[468] // Left iris center
+
+  // Right eye analysis
+  const rightEyeInner = landmarks[362] // Right eye inner corner
+  const rightEyeOuter = landmarks[263] // Right eye outer corner
+  const rightIrisCenter = landmarks[473] // Right iris center
+
+  if (!leftIrisCenter || !rightIrisCenter || !leftEyeInner || !leftEyeOuter || !rightEyeInner || !rightEyeOuter) {
+    return { isLookingAtCamera: false, gazeDirection: { x: 0, y: 0 } }
+  }
+
+  // Calculate iris position relative to eye corners (normalized -1 to 1)
+  // Left eye: calculate how far iris is from center of eye
+  const leftEyeWidth = Math.abs(leftEyeOuter.x - leftEyeInner.x)
+  const leftEyeCenter = (leftEyeOuter.x + leftEyeInner.x) / 2
+  const leftGazeX = leftEyeWidth > 0 ? (leftIrisCenter.x - leftEyeCenter) / (leftEyeWidth / 2) : 0
+
+  // Right eye: calculate how far iris is from center of eye
+  const rightEyeWidth = Math.abs(rightEyeOuter.x - rightEyeInner.x)
+  const rightEyeCenter = (rightEyeOuter.x + rightEyeInner.x) / 2
+  const rightGazeX = rightEyeWidth > 0 ? (rightIrisCenter.x - rightEyeCenter) / (rightEyeWidth / 2) : 0
+
+  // Average the two eyes for final gaze direction
+  const gazeX = (leftGazeX + rightGazeX) / 2
+
+  // Calculate vertical gaze (simplified using eye height)
+  const eyeCenterY = (leftIrisCenter.y + rightIrisCenter.y) / 2
+  const expectedCenterY = 0.5 // Expected center when looking at camera
+  const gazeY = (eyeCenterY - expectedCenterY) * 2 // Normalize to -1..1
+
+  // Determine if looking at camera (within threshold)
+  const GAZE_THRESHOLD = 0.25 // If gaze is within ±0.25 of center, consider it "looking at camera"
+  const isLookingAtCamera = Math.abs(gazeX) < GAZE_THRESHOLD && Math.abs(gazeY) < GAZE_THRESHOLD
+
+  return {
+    isLookingAtCamera,
+    gazeDirection: {
+      x: Math.max(-1, Math.min(1, gazeX)), // Clamp to -1..1
+      y: Math.max(-1, Math.min(1, gazeY))  // Clamp to -1..1
+    }
+  }
 }

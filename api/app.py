@@ -73,11 +73,11 @@ class EQMetrics(BaseModel):
 
 
 class GradeAnswerRequest(BaseModel):
-    qid: str
+    qid: Optional[str] = None
     transcript: str
-    timings: DeliveryMetrics
-    eq: EQMetrics
-    job_graph: ExtractRequirementsResponse
+    timings: Optional[Dict] = None
+    eq: Optional[Dict] = None
+    job_graph: Optional[Dict] = None
 
 
 class STARScore(BaseModel):
@@ -152,12 +152,19 @@ Guidelines:
         # Parse the JSON
         data = json.loads(response_text)
 
+        # Convert requirements list of strings to Requirement objects
+        req_list = data.get("requirements", [])
+        requirements = [
+            Requirement(id=f"req_{i+1}", text=req)
+            for i, req in enumerate(req_list) if req
+        ]
+
         return ExtractRequirementsResponse(
             role=data.get("role", "Unknown Role"),
             skills_core=data.get("skills_core", []),
             skills_nice=data.get("skills_nice", []),
             values=data.get("values", []),
-            requirements=data.get("requirements", [])
+            requirements=requirements
         )
 
     except Exception as e:
@@ -233,19 +240,8 @@ async def extract_requirements_endpoint(request: ExtractRequirementsRequest, dem
         api_key = os.getenv("GEMINI_API_KEY")
 
         if api_key:
-            gemini_result = extract_with_gemini(request.raw_text, api_key)
-            # Convert requirements to Requirement objects
-            requirements = [
-                Requirement(id=f"req_{i+1}", text=req)
-                for i, req in enumerate(gemini_result.requirements)
-            ]
-            return ExtractRequirementsResponse(
-                role=gemini_result.role,
-                skills_core=gemini_result.skills_core,
-                skills_nice=gemini_result.skills_nice,
-                values=gemini_result.values,
-                requirements=requirements
-            )
+            # extract_with_gemini already returns a properly formatted ExtractRequirementsResponse
+            return extract_with_gemini(request.raw_text, api_key)
         else:
             raise HTTPException(
                 status_code=500,
@@ -476,51 +472,26 @@ async def generate_plan(request: GeneratePlanRequest, demo: bool = False):
     return generate_gemini_plan(request.extracted, request.resume_text, api_key)
 
 
-@app.post("/grade_answer", response_model=GradeAnswerResponse)
-async def grade_answer(request: GradeAnswerRequest):
+@app.post("/grade_answer")
+async def grade_answer_route(body: GradeAnswerRequest):
     """
     Grade an interview answer based on content, STAR framework, delivery, and EQ metrics.
     Returns scores and personalized improvement tips.
+
+    Never raises 500 errors - returns friendly fallback on any failure.
     """
     try:
-        from grading_simple import compute_content_score, compute_star_score, generate_tips
-
-        # Extract job context
-        req_texts = [req.text for req in request.job_graph.requirements]
-        core_skills = request.job_graph.skills_core
-
-        # Compute content relevance score
-        content_score = compute_content_score(request.transcript, req_texts, core_skills)
-
-        # Compute STAR framework scores
-        s, t, a, r = compute_star_score(request.transcript)
-        star_score = STARScore(S=s, T=t, A=a, R=r)
-
-        # Generate personalized tips
-        tips = generate_tips(
-            request.transcript,
-            content_score,
-            (s, t, a, r),
-            request.timings.wordsPerMin,
-            request.timings.pauseRatio,
-            request.timings.fillerPerMin,
-            request.eq.gazeStability,
-            request.eq.blinkRatePerMin,
-            request.eq.expressionVariance
-        )
-
-        return GradeAnswerResponse(
-            content_score=content_score,
-            star=star_score,
-            delivery=request.timings,
-            eq=request.eq,
-            tips=tips
-        )
-
+        from grading_simple import grade_answer as _grade
+        return _grade(body.model_dump())
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Grading error: {str(e)}"
-        )
+        # Friendly fallback - never expose errors to client
+        print(f"Grading error: {str(e)}")
+        return {
+            "content_score": 0.5,
+            "star": {"S":0,"T":0,"A":0,"R":0},
+            "delivery": {"wpm":0,"pauseRatio":0.0,"fillerPerMin":0.0},
+            "tips": ["Temporary grading issue. Try again, or add one metric and a strong action verb."]
+        }
+
 
 

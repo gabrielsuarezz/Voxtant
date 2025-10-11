@@ -35,6 +35,8 @@ export interface EQMetrics {
   gazeStability: number
   blinkRatePerMin: number
   expressionVariance: number
+  isLookingAtCamera: boolean
+  gazeDirection: { x: number, y: number }
 }
 
 export interface STARScore {
@@ -110,7 +112,10 @@ export async function gradeAnswer(
   eq: EQMetrics,
   job_graph: ExtractRequirementsResponse
 ): Promise<GradeAnswerResponse> {
-  const response = await fetch(`${API_BASE_URL}/grade_answer`, {
+  const url = `${API_BASE_URL}/grade_answer`
+  console.log('Grading answer at:', url)
+
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -125,8 +130,9 @@ export async function gradeAnswer(
   })
 
   if (!response.ok) {
-    const error = await response.json()
-    throw new Error(error.detail || 'Failed to grade answer')
+    const text = await response.text().catch(() => '')
+    console.error(`Grading failed: ${response.status} ${response.statusText}`, text)
+    throw new Error(`Failed to grade: ${response.status} ${response.statusText} ${text}`)
   }
 
   return response.json()

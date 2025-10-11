@@ -12,6 +12,8 @@ interface EQMetrics {
   gazeStability: number
   blinkRatePerMin: number
   expressionVariance: number
+  isLookingAtCamera: boolean
+  gazeDirection: { x: number, y: number }
 }
 
 interface UseEQReturn {
@@ -31,7 +33,9 @@ export function useEQ(videoRef: React.RefObject<HTMLVideoElement>): UseEQReturn 
   const [metrics, setMetrics] = useState<EQMetrics>({
     gazeStability: 0,
     blinkRatePerMin: 0,
-    expressionVariance: 0
+    expressionVariance: 0,
+    isLookingAtCamera: false,
+    gazeDirection: { x: 0, y: 0 }
   })
   const [isRunning, setIsRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
