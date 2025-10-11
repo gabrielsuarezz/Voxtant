@@ -73,7 +73,7 @@ async def health_check():
 def extract_with_gemini(raw_text: str, api_key: str) -> ExtractRequirementsResponse:
     """Use Gemini AI to intelligently extract structured data from job posting."""
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.5-flash-exp-native-audio-thinking-dialog')
+    model = genai.GenerativeModel('gemini-2.0-flash-exp')
 
     prompt = f"""You are an expert at analyzing job postings. Extract the following information from the job posting below:
 
@@ -251,7 +251,7 @@ def generate_gemini_plan(extracted: ExtractRequirementsResponse, resume_text: Op
     Generate interview questions and rubrics using Gemini 2.5 Flash.
     """
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.5-flash-exp-native-audio-thinking-dialog')
+    model = genai.GenerativeModel('gemini-2.0-flash-exp')
 
     # Build the prompt
     role = extracted.role or "Unknown Role"
@@ -415,6 +415,88 @@ async def generate_plan(request: GeneratePlanRequest, demo: bool = False):
     return generate_gemini_plan(request.extracted, request.resume_text, api_key)
 
 
+class InterviewFeedbackRequest(BaseModel):
+    conversation: List[Dict[str, str]]  # List of {"role": "interviewer/candidate", "text": "..."}
+    role: str
+    company: Optional[str] = None
+
+
+class InterviewFeedbackResponse(BaseModel):
+    feedback: str
+    strengths: List[str]
+    areas_for_improvement: List[str]
+
+
+@app.post("/interview/feedback", response_model=InterviewFeedbackResponse)
+async def generate_interview_feedback(request: InterviewFeedbackRequest):
+    """
+    Generate detailed, honest feedback for interview performance.
+    Does not sugarcoat - provides actionable criticism.
+    """
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
+
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-2.0-flash-exp')
+
+        # Build conversation transcript
+        transcript = "\n\n".join([
+            f"{'Interviewer' if msg['role'] == 'interviewer' else 'Candidate'}: {msg['text']}"
+            for msg in request.conversation
+        ])
+
+        company_context = f" at {request.company}" if request.company else ""
+
+        prompt = f"""You are an experienced interview coach providing brutally honest feedback. Analyze this mock interview transcript for the {request.role} position{company_context}.
+
+TRANSCRIPT:
+{transcript}
+
+Provide detailed, critical feedback that:
+1. Does NOT sugarcoat or be overly positive
+2. Points out specific mistakes and missed opportunities
+3. Explains WHY something was wrong and HOW to improve
+4. Identifies weak answers that need strengthening
+5. Notes missed STAR framework elements in behavioral questions
+6. Highlights technical answers that lacked depth or specificity
+7. Points out filler words, rambling, or unclear responses
+
+Format your response as JSON:
+{{
+  "feedback": "Overall detailed analysis (3-4 paragraphs, be specific and critical)",
+  "strengths": ["List 2-3 things done well"],
+  "areas_for_improvement": ["List 4-6 specific things to improve with concrete examples from their answers"]
+}}
+
+Be direct and constructive. The goal is to help them improve, not make them feel good."""
+
+        response = model.generate_content(prompt)
+        response_text = response.text.strip()
+
+        # Remove markdown code blocks
+        if response_text.startswith("```json"):
+            response_text = response_text[7:]
+        if response_text.startswith("```"):
+            response_text = response_text[3:]
+        if response_text.endswith("```"):
+            response_text = response_text[:-3]
+        response_text = response_text.strip()
+
+        data = json.loads(response_text)
+
+        return InterviewFeedbackResponse(
+            feedback=data["feedback"],
+            strengths=data.get("strengths", []),
+            areas_for_improvement=data.get("areas_for_improvement", [])
+        )
+
+    except Exception as e:
+        print(f"Feedback generation error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate feedback: {str(e)}")
+
+
 @app.websocket("/ws/interview")
 async def websocket_interview(websocket: WebSocket, role: str = "this position", company: str = ""):
     """
@@ -435,6 +517,7 @@ async def websocket_interview(websocket: WebSocket, role: str = "this position",
         return
 
     gemini_ws = None
+    conversation_log = []  # Track conversation for feedback
 
     try:
         # Connect to Gemini Live API
@@ -534,7 +617,10 @@ Start by briefly introducing yourself and asking the first question."""
                             # Log if there's text (means Gemini is responding to speech)
                             for part in parts:
                                 if "text" in part:
-                                    print(f"[Gemini] Text response: {part['text'][:150]}...")
+                                    text = part['text']
+                                    print(f"[Gemini] Text response: {text[:150]}...")
+                                    # Track conversation for feedback
+                                    conversation_log.append({"role": "interviewer", "text": text})
                                 if "inlineData" in part:
                                     mime_type = part["inlineData"].get("mimeType", "unknown")
                                     data_length = len(part["inlineData"].get("data", ""))

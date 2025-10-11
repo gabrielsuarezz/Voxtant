@@ -20,6 +20,17 @@ export interface GeneratePlanResponse {
   rubric: Record<string, string[]>
 }
 
+export interface ConversationMessage {
+  role: 'interviewer' | 'candidate'
+  text: string
+}
+
+export interface InterviewFeedbackResponse {
+  feedback: string
+  strengths: string[]
+  areas_for_improvement: string[]
+}
+
 export async function extractRequirements(
   raw_text: string,
   demo?: boolean
@@ -66,6 +77,27 @@ export async function generatePlan(
   if (!response.ok) {
     const error = await response.json()
     throw new Error(error.detail || 'Failed to generate plan')
+  }
+
+  return response.json()
+}
+
+export async function generateInterviewFeedback(
+  conversation: ConversationMessage[],
+  role: string,
+  company?: string
+): Promise<InterviewFeedbackResponse> {
+  const response = await fetch(`${API_BASE_URL}/interview/feedback`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ conversation, role, company }),
+  })
+
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.detail || 'Failed to generate feedback')
   }
 
   return response.json()

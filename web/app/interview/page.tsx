@@ -3,10 +3,13 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAudioStream } from '@/hooks/useAudioStream'
+import { useWebcam } from '@/hooks/useWebcam'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Logo } from '@/components/ui/logo'
-import { Mic, MicOff, Phone, PhoneOff, ArrowLeft, Radio, Shield } from 'lucide-react'
+import { FeedbackDisplay } from '@/components/interview/FeedbackDisplay'
+import { generateInterviewFeedback, type InterviewFeedbackResponse, type ConversationMessage } from '@/lib/api-client'
+import { Mic, MicOff, Phone, PhoneOff, ArrowLeft, Radio, Shield, Video, Loader2 } from 'lucide-react'
 
 interface JobData {
   raw_text: string
@@ -22,6 +25,7 @@ interface JobData {
 export default function InterviewPage() {
   const router = useRouter()
   const { connect, disconnect, connectionState, error, isSpeaking } = useAudioStream()
+  const { videoRef, start: startWebcam, stop: stopWebcam, permissionState, error: webcamError } = useWebcam()
   const [isActive, setIsActive] = useState(false)
   const [jobData, setJobData] = useState<JobData | null>(null)
 
@@ -35,6 +39,7 @@ export default function InterviewPage() {
 
   const handleStart = async () => {
     try {
+      await startWebcam()
       await connect(jobData)
       setIsActive(true)
     } catch (err) {
@@ -44,6 +49,7 @@ export default function InterviewPage() {
 
   const handleStop = () => {
     disconnect()
+    stopWebcam()
     setIsActive(false)
   }
 
@@ -74,26 +80,52 @@ export default function InterviewPage() {
           <Card className="glass-card border-2">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Phone className="w-5 h-5 text-primary" />
-                Audio Interview Session
+                <Video className="w-5 h-5 text-primary" />
+                Live Interview Session
               </CardTitle>
               <CardDescription>
-                Speak naturally with the AI interviewer - your responses will be evaluated in real-time
+                Speak naturally with the AI interviewer - see yourself as you practice
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {/* Connection Status */}
-              <div className="relative bg-gradient-to-br from-neutral-900 to-neutral-800 rounded-xl overflow-hidden aspect-video border-2 border-neutral-700 flex flex-col items-center justify-center">
-                {connectionState === 'disconnected' && (
-                  <div className="text-center">
-                    <Mic className="w-16 h-16 text-neutral-400 mb-4 mx-auto" />
+              {/* Video Feed */}
+              <div className="relative bg-gradient-to-br from-neutral-900 to-neutral-800 rounded-xl overflow-hidden aspect-video border-2 border-neutral-700">
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-cover"
+                />
+
+                {/* Overlay indicators when not active */}
+                {!isActive && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-neutral-900/70 backdrop-blur-sm">
+                    <Video className="w-16 h-16 text-neutral-400 mb-3" />
                     <p className="text-neutral-300 font-medium text-lg">Ready to start</p>
-                    <p className="text-neutral-400 text-sm mt-2">Click Start Interview to begin</p>
+                    <p className="text-neutral-400 text-sm mt-1">Click Start Interview to begin</p>
                   </div>
                 )}
 
+                {/* Live indicator when connected */}
+                {isActive && connectionState === 'connected' && (
+                  <div className="absolute top-4 right-4 flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-500/90 backdrop-blur-sm animate-pulse">
+                    <div className="w-2 h-2 rounded-full bg-white"></div>
+                    <span className="text-white text-sm font-medium">Live</span>
+                  </div>
+                )}
+
+                {/* Speaking indicator */}
+                {isActive && isSpeaking && (
+                  <div className="absolute bottom-4 left-4 flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/90 backdrop-blur-sm">
+                    <Mic className="w-4 h-4 text-white" />
+                    <span className="text-white text-sm font-medium">Speaking...</span>
+                  </div>
+                )}
+
+                {/* Connection status */}
                 {connectionState === 'connecting' && (
-                  <div className="text-center">
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-neutral-900/70 backdrop-blur-sm">
                     <div className="relative">
                       <Radio className="w-16 h-16 text-primary animate-pulse mb-4 mx-auto" />
                       <div className="absolute inset-0 flex items-center justify-center">
@@ -101,36 +133,12 @@ export default function InterviewPage() {
                       </div>
                     </div>
                     <p className="text-neutral-300 font-medium text-lg">Connecting...</p>
-                    <p className="text-neutral-400 text-sm mt-2">Setting up audio stream</p>
-                  </div>
-                )}
-
-                {connectionState === 'connected' && (
-                  <div className="text-center">
-                    <div className="relative mb-4">
-                      {isSpeaking ? (
-                        <Mic className="w-16 h-16 text-green-500 mx-auto" />
-                      ) : (
-                        <Mic className="w-16 h-16 text-primary mx-auto" />
-                      )}
-                      {isSpeaking && (
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <div className="w-20 h-20 bg-green-500/20 rounded-full animate-ping"></div>
-                        </div>
-                      )}
-                    </div>
-                    <p className="text-green-400 font-medium text-lg flex items-center gap-2 justify-center">
-                      <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                      Interview Active
-                    </p>
-                    <p className="text-neutral-400 text-sm mt-2">
-                      {isSpeaking ? 'Listening...' : 'Speak to answer questions'}
-                    </p>
+                    <p className="text-neutral-400 text-sm mt-2">Setting up interview session</p>
                   </div>
                 )}
 
                 {connectionState === 'error' && (
-                  <div className="text-center">
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-neutral-900/70 backdrop-blur-sm">
                     <MicOff className="w-16 h-16 text-red-400 mb-4 mx-auto" />
                     <p className="text-red-400 font-medium text-lg">Connection Error</p>
                     <p className="text-neutral-400 text-sm mt-2">Please try again</p>
@@ -139,9 +147,18 @@ export default function InterviewPage() {
               </div>
 
               {/* Error Display */}
-              {error && (
-                <div className="mt-4 p-3 rounded-lg bg-destructive/10 border border-destructive/20">
-                  <p className="text-sm text-destructive font-medium">{error}</p>
+              {(error || webcamError) && (
+                <div className="mt-4 space-y-2">
+                  {error && (
+                    <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20">
+                      <p className="text-sm text-destructive font-medium">{error}</p>
+                    </div>
+                  )}
+                  {webcamError && (
+                    <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20">
+                      <p className="text-sm text-destructive font-medium">{webcamError}</p>
+                    </div>
+                  )}
                 </div>
               )}
 
