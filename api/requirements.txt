@@ -6,3 +6,4 @@ python-multipart==0.0.18
 google-generativeai==0.8.3
 websockets==12.0
 aiohttp==3.9.5
+certifi>=2024.0.0

@@ -10,6 +10,9 @@ import json
 import asyncio
 import websockets
 import base64
+import ssl
+import certifi
+import traceback
 
 load_dotenv()
 
@@ -70,7 +73,7 @@ async def health_check():
 def extract_with_gemini(raw_text: str, api_key: str) -> ExtractRequirementsResponse:
     """Use Gemini AI to intelligently extract structured data from job posting."""
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.0-flash-exp')
+    model = genai.GenerativeModel('gemini-2.5-flash-exp-native-audio-thinking-dialog')
 
     prompt = f"""You are an expert at analyzing job postings. Extract the following information from the job posting below:
 
@@ -248,7 +251,7 @@ def generate_gemini_plan(extracted: ExtractRequirementsResponse, resume_text: Op
     Generate interview questions and rubrics using Gemini 2.5 Flash.
     """
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.0-flash-exp')
+    model = genai.GenerativeModel('gemini-2.5-flash-exp-native-audio-thinking-dialog')
 
     # Build the prompt
     role = extracted.role or "Unknown Role"
@@ -422,8 +425,9 @@ async def websocket_interview(websocket: WebSocket, role: str = "this position",
     - role: Job role/title
     - company: Company name (optional)
     """
+    print(f"[WebSocket] New connection request - Role: {role}, Company: {company}")
     await websocket.accept()
-    print(f"WebSocket connection accepted - Role: {role}, Company: {company}")
+    print(f"[WebSocket] Connection accepted")
 
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
@@ -436,14 +440,17 @@ async def websocket_interview(websocket: WebSocket, role: str = "this position",
         # Connect to Gemini Live API
         gemini_url = f"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key={api_key}"
 
+        # Create SSL context with certifi's CA bundle
+        ssl_context = ssl.create_default_context(cafile=certifi.where())
+
         print("Connecting to Gemini Live API...")
-        gemini_ws = await websockets.connect(gemini_url)
+        gemini_ws = await websockets.connect(gemini_url, ssl=ssl_context)
         print("Connected to Gemini Live API")
 
         # Send initial setup message to Gemini
         setup_message = {
             "setup": {
-                "model": "models/gemini-2.0-flash-exp",
+                "model": "models/gemini-2.5-flash-exp-native-audio-thinking-dialog",
                 "generation_config": {
                     "response_modalities": ["AUDIO"],
                     "speech_config": {
@@ -456,7 +463,19 @@ async def websocket_interview(websocket: WebSocket, role: str = "this position",
                 },
                 "system_instruction": {
                     "parts": [{
-                        "text": "You are an AI interviewer conducting a mock job interview. Listen carefully to the candidate's answers and respond thoughtfully. Ask ONE question at a time, wait for their complete answer, acknowledge what they said, and then ask the next question or follow-up. Be conversational and react naturally to their responses. Don't just read through a list of questions - have a real dialogue."
+                        "text": f"""You are an experienced interviewer conducting a mock job interview for the {role} position. Your goal is to help the candidate practice their interview skills.
+
+IMPORTANT INSTRUCTIONS:
+1. Ask ONE question at a time and WAIT for the candidate to finish answering
+2. After they answer, provide brief feedback (2-3 sentences) on their response
+3. Then ask a follow-up question or move to the next interview question
+4. Be conversational, encouraging, and natural - this is a practice session
+5. Listen actively and respond to what they actually say
+6. If they give a short answer, ask follow-up questions to help them elaborate
+7. Cover both behavioral (STAR method) and technical questions
+8. Keep the interview focused and professional but friendly
+
+Start by briefly introducing yourself and asking the first question."""
                     }]
                 }
             }
@@ -471,12 +490,12 @@ async def websocket_interview(websocket: WebSocket, role: str = "this position",
                 while True:
                     audio_chunk = await websocket.receive_bytes()
 
-                    # Convert to base64 and send to Gemini
+                    # Convert to base64 and send to Gemini with proper sample rate
                     audio_b64 = base64.b64encode(audio_chunk).decode('utf-8')
                     message = {
                         "realtime_input": {
                             "media_chunks": [{
-                                "mime_type": "audio/pcm",
+                                "mime_type": "audio/pcm;rate=16000",  # Specify 16kHz sample rate
                                 "data": audio_b64
                             }]
                         }
@@ -484,9 +503,10 @@ async def websocket_interview(websocket: WebSocket, role: str = "this position",
                     await gemini_ws.send(json.dumps(message))
 
             except WebSocketDisconnect:
-                print("Client disconnected")
+                print("[Client→Gemini] Client disconnected")
             except Exception as e:
-                print(f"Error client->gemini: {e}")
+                print(f"[Client→Gemini] ERROR: {e}")
+                traceback.print_exc()
 
         # Task to forward audio from Gemini to client
         async def gemini_to_client():
@@ -496,26 +516,31 @@ async def websocket_interview(websocket: WebSocket, role: str = "this position",
 
                     # Log all message types for debugging
                     message_types = list(data.keys())
-                    if "serverContent" not in data or "toolCall" in data or "toolCallCancellation" in data:
-                        print(f"Gemini message types: {message_types}")
+                    print(f"[Gemini→Server] Message types: {message_types}")
 
                     # Check for audio in response
                     if "serverContent" in data:
                         server_content = data["serverContent"]
+
+                        # Log interrupted flag
+                        if "interrupted" in server_content:
+                            print(f"[Gemini] Interrupted: {server_content['interrupted']}")
+
+                        # Handle model's response
                         if "modelTurn" in server_content:
                             parts = server_content["modelTurn"].get("parts", [])
-                            print(f"Received modelTurn with {len(parts)} parts")
+                            print(f"[Gemini] modelTurn with {len(parts)} parts")
 
                             # Log if there's text (means Gemini is responding to speech)
                             for part in parts:
                                 if "text" in part:
-                                    print(f"Gemini text: {part['text'][:100]}...")
+                                    print(f"[Gemini] Text response: {part['text'][:150]}...")
                                 if "inlineData" in part:
                                     mime_type = part["inlineData"].get("mimeType", "unknown")
                                     data_length = len(part["inlineData"].get("data", ""))
-                                    print(f"Gemini audio: mimeType={mime_type}, data_length={data_length}")
+                                    print(f"[Gemini] Audio chunk: {mime_type}, {data_length} bytes")
 
-                            # Send audio back
+                            # Send audio back to client
                             for part in parts:
                                 if "inlineData" in part:
                                     audio_b64 = part["inlineData"].get("data", "")
@@ -523,22 +548,26 @@ async def websocket_interview(websocket: WebSocket, role: str = "this position",
                                         # Decode and send to client
                                         audio_bytes = base64.b64decode(audio_b64)
                                         await websocket.send_bytes(audio_bytes)
-                                        print(f"Sent {len(audio_bytes)} bytes to client")
+                                        print(f"[Server→Client] Sent {len(audio_bytes)} audio bytes")
 
-                        # Check if Gemini detected speech
+                        # Check if Gemini detected turn complete
                         if "turnComplete" in server_content:
-                            print("Gemini detected turn complete")
+                            print(f"[Gemini] Turn complete detected: {server_content['turnComplete']}")
+
+                        # Check for grounding metadata
+                        if "groundingMetadata" in server_content:
+                            print(f"[Gemini] Grounding metadata present")
 
                     # Log other message types
                     if "setupComplete" in data:
                         print("Gemini setup complete")
 
                         # Send initial prompt to start the interview
-                        # Build personalized greeting
+                        # Build simple trigger to start conversation
                         if company:
-                            greeting = f"Hello! I'm ready to start the mock interview. Please introduce yourself as a Gemini AI assistant conducting a mock interview for the {role} position at {company}. Then ask me the first interview question."
+                            greeting = f"Hello! I'm here for the mock interview for the {role} position at {company}."
                         else:
-                            greeting = f"Hello! I'm ready to start the mock interview. Please introduce yourself as a Gemini AI assistant conducting a mock interview for the {role} position. Then ask me the first interview question."
+                            greeting = f"Hello! I'm here for the mock interview for the {role} position."
 
                         initial_message = {
                             "client_content": {
@@ -555,7 +584,8 @@ async def websocket_interview(websocket: WebSocket, role: str = "this position",
                         print("Sent initial prompt to Gemini")
 
             except Exception as e:
-                print(f"Error gemini->client: {e}")
+                print(f"[Gemini→Client] ERROR: {e}")
+                traceback.print_exc()
 
         # Run both tasks concurrently
         await asyncio.gather(
@@ -564,11 +594,18 @@ async def websocket_interview(websocket: WebSocket, role: str = "this position",
         )
 
     except WebSocketDisconnect:
-        print("Client disconnected")
+        print("[WebSocket] Client disconnected")
     except Exception as e:
-        print(f"WebSocket error: {str(e)}")
-        await websocket.close(code=1011, reason=str(e))
+        print(f"[WebSocket] FATAL ERROR: {str(e)}")
+        traceback.print_exc()
+        try:
+            await websocket.close(code=1011, reason=str(e)[:100])  # Limit reason length
+        except:
+            pass
     finally:
         if gemini_ws:
-            await gemini_ws.close()
-            print("Closed Gemini connection")
+            try:
+                await gemini_ws.close()
+                print("[WebSocket] Closed Gemini connection")
+            except Exception as e:
+                print(f"[WebSocket] Error closing Gemini connection: {e}")

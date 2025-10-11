@@ -80,7 +80,7 @@ export function useAudioStream(): UseAudioStreamReturn {
       setError(null)
       setConnectionState('connecting')
 
-      // Get microphone access (don't force sample rate - let browser decide)
+      // Get microphone access
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
@@ -92,14 +92,15 @@ export function useAudioStream(): UseAudioStreamReturn {
 
       mediaStreamRef.current = stream
 
-      // Create audio context with default sample rate (usually 44.1kHz or 48kHz)
+      // Create audio context with default sample rate
       const audioContext = new AudioContext()
       audioContextRef.current = audioContext
 
       const source = audioContext.createMediaStreamSource(stream)
       sourceRef.current = source
 
-      console.log('AudioContext sample rate:', audioContext.sampleRate)
+      console.log('[Client] AudioContext sample rate:', audioContext.sampleRate)
+      console.log('[Client] Will resample to 16kHz for Gemini Live API')
 
       // Create WebSocket connection with job data as query params
       let wsUrl = `${WS_URL}/ws/interview`
@@ -128,10 +129,30 @@ export function useAudioStream(): UseAudioStreamReturn {
           if (ws.readyState === WebSocket.OPEN) {
             const inputData = e.inputBuffer.getChannelData(0)
 
+            // Resample from audioContext.sampleRate to 16kHz for Gemini
+            const sourceSampleRate = audioContext.sampleRate
+            const targetSampleRate = 16000
+            const ratio = sourceSampleRate / targetSampleRate
+            const outputLength = Math.floor(inputData.length / ratio)
+            const resampled = new Float32Array(outputLength)
+
+            // Simple linear interpolation resampling
+            for (let i = 0; i < outputLength; i++) {
+              const sourceIndex = i * ratio
+              const index = Math.floor(sourceIndex)
+              const fraction = sourceIndex - index
+
+              if (index + 1 < inputData.length) {
+                resampled[i] = inputData[index] * (1 - fraction) + inputData[index + 1] * fraction
+              } else {
+                resampled[i] = inputData[index]
+              }
+            }
+
             // Convert Float32 to Int16 PCM
-            const pcmData = new Int16Array(inputData.length)
-            for (let i = 0; i < inputData.length; i++) {
-              const s = Math.max(-1, Math.min(1, inputData[i]))
+            const pcmData = new Int16Array(resampled.length)
+            for (let i = 0; i < resampled.length; i++) {
+              const s = Math.max(-1, Math.min(1, resampled[i]))
               pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF
             }
 
@@ -154,6 +175,7 @@ export function useAudioStream(): UseAudioStreamReturn {
         // Receive audio from server and play it
         if (event.data instanceof ArrayBuffer) {
           const pcmData = new Int16Array(event.data)
+          console.log('[Client] Received audio chunk:', pcmData.length, 'samples')
 
           // Convert Int16 PCM to Float32
           const float32Data = new Float32Array(pcmData.length)
@@ -174,6 +196,7 @@ export function useAudioStream(): UseAudioStreamReturn {
           const startTime = Math.max(currentTime, nextPlayTimeRef.current)
 
           bufferSource.start(startTime)
+          console.log('[Client] Playing audio at', startTime, 'duration', audioBuffer.duration)
 
           // Update next play time (duration = samples / sample rate)
           nextPlayTimeRef.current = startTime + audioBuffer.duration

@@ -9,7 +9,7 @@ Voxtant is an AI-powered mock interview platform for job seekers. The system ext
 **Tech Stack:**
 - Frontend: Next.js 14 (App Router) + TypeScript + Tailwind CSS + shadcn/ui
 - Backend: FastAPI (Python)
-- AI: Google Gemini 2.5 Flash (for question/rubric generation)
+- AI: Google Gemini 2.5 Flash (`gemini-2.5-flash-exp-native-audio-thinking-dialog` for live interviews)
 - Computer Vision: MediaPipe FaceLandmarker (Web), OpenCV.js
 - Architecture: Monorepo with separate web and API workspaces
 - Privacy: All EQ analysis runs in-browser; no video leaves device
@@ -101,13 +101,13 @@ cd web && npm run dev
   - `POST /extract_requirements` - Extract structured data using Gemini AI
     - Input: `{ raw_text: string }`
     - Query param `?demo=true` - Returns stable sample data for offline demos
-    - Uses Gemini 2.5 Flash (`gemini-2.0-flash-exp`) to extract role, skills, values, requirements
+    - Uses Gemini 2.5 Flash (`gemini-2.5-flash-exp-native-audio-thinking-dialog`)
     - Returns 500 error if GEMINI_API_KEY not configured (unless `?demo=true`)
     - Fallback: Returns empty arrays on Gemini API failure
   - `POST /generate_plan` - Generate interview questions and rubrics
     - Input: `{ extracted: ExtractRequirementsResponse, resume_text?: string }`
     - Query param `?demo=true` - Returns 4 stable demo questions with rubrics
-    - Uses Gemini 2.5 Flash (`gemini-2.0-flash-exp`) with few-shot prompting
+    - Uses Gemini 2.5 Flash (`gemini-2.5-flash-exp-native-audio-thinking-dialog`) with few-shot prompting
     - Generates 3-5 questions (mix of behavioral STAR + technical)
     - Each question has: id, type, text, targets[]
     - Returns rubric with 3-5 evaluation criteria per question
@@ -115,11 +115,14 @@ cd web && npm run dev
   - `WS /ws/interview` - Live audio interview streaming (WebSocket)
     - Proxies bidirectional audio between client and Gemini Live API
     - Connects to: `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent`
-    - Uses `gemini-2.0-flash-exp` model with AUDIO response modality
-    - Client sends: PCM audio chunks at native sample rate (44.1/48kHz)
-    - Gemini returns: PCM audio at 24kHz (base64-encoded in JSON messages)
-    - Initial prompt auto-sent after setup to trigger conversation start
-    - System instruction: Ask questions one at a time, speak out loud, be conversational
+    - Uses `gemini-2.5-flash-exp-native-audio-thinking-dialog` model (dialog-optimized with native audio)
+    - **CRITICAL**: Requires SSL context with certifi CA bundle for certificate verification
+    - Client sends: 16kHz PCM audio (resampled from browser's native 48kHz)
+    - Gemini expects: `audio/pcm;rate=16000` format (wrong sample rate = unintelligible audio)
+    - Gemini returns: 24kHz PCM audio (base64-encoded in JSON messages)
+    - Built-in Voice Activity Detection (VAD) automatically detects turn completion
+    - Initial prompt auto-sent after `setupComplete` to trigger conversation start
+    - System instruction emphasizes: ONE question at a time, provide feedback, be conversational
 
 - **CORS Configuration:**
   - Defaults to `http://localhost:3000` if `ALLOWED_ORIGINS` not set
@@ -279,10 +282,11 @@ Real-time audio conversation with Gemini AI using WebSocket streaming:
    - **Server → Client**: Binary PCM chunks decoded from base64
 
 3. **Frontend Audio Streaming (hooks/useAudioStream.ts):**
-   - Creates AudioContext with browser's default sample rate (no forced 16kHz)
+   - Creates AudioContext with browser's default sample rate (typically 48kHz)
    - Captures microphone via getUserMedia with echo cancellation, noise suppression
    - Uses ScriptProcessorNode (deprecated but functional) to process audio in 4096-sample chunks
-   - Converts Float32 audio to Int16 PCM and sends via WebSocket
+   - **CRITICAL**: Resamples audio from 48kHz → 16kHz using linear interpolation before sending
+   - Conversion: Float32 → Int16 PCM for WebSocket transmission
    - Receives 24kHz PCM from server and queues playback sequentially
    - Uses `nextPlayTimeRef` to schedule audio buffers without gaps/overlaps
    - Volume detection triggers `isSpeaking` indicator
@@ -295,11 +299,14 @@ Real-time audio conversation with Gemini AI using WebSocket streaming:
    - Interview tips card with STAR method guidance
 
 5. **Key Technical Decisions:**
-   - No forced sample rate on microphone - use browser's native rate to avoid compatibility issues
+   - Browser captures at native rate (48kHz) to avoid AudioContext incompatibility errors
+   - Client-side resampling to 16kHz required (Gemini Live API requirement)
+   - Server specifies `audio/pcm;rate=16000` MIME type for correct interpretation
    - Audio buffers created at 24kHz (Gemini's output) for correct playback speed
    - Sequential audio queueing prevents choppy/sped-up playback
    - Initial prompt required to make Gemini start conversation proactively
-   - System instruction emphasizes "ask ONE question at a time" and "speak out loud"
+   - System instruction emphasizes "ask ONE question at a time" and "provide feedback"
+   - Gemini's built-in VAD handles turn detection automatically (no manual implementation needed)
 
 ### Type System
 - TypeScript interfaces defined in `web/lib/api-client.ts`
@@ -312,16 +319,54 @@ Real-time audio conversation with Gemini AI using WebSocket streaming:
   - `GeneratePlanResponse` - questions[] + rubric{} mapping
 - EQ metrics: `{ gazeStability: number, blinkRatePerMin: number, expressionVariance: number }`
 
+## Common Issues & Solutions
+
+### Live Interview WebSocket Issues
+
+**Problem: "Connection lost unexpectedly" or SSL certificate errors**
+- **Cause**: Missing SSL certificate verification for Gemini Live API
+- **Solution**: Ensure `certifi` package is installed and SSL context is configured:
+  ```python
+  import ssl
+  import certifi
+  ssl_context = ssl.create_default_context(cafile=certifi.where())
+  gemini_ws = await websockets.connect(gemini_url, ssl=ssl_context)
+  ```
+
+**Problem: Gemini doesn't understand speech / doesn't respond**
+- **Cause**: Wrong audio sample rate (most common issue)
+- **Solution**:
+  - Client must resample to 16kHz before sending (see `useAudioStream.ts`)
+  - Server must specify `audio/pcm;rate=16000` in MIME type
+  - Verify in console: `[Client] Will resample to 16kHz for Gemini Live API`
+
+**Problem: "AudioContext.createMediaStreamSource: different sample-rate" error**
+- **Cause**: Attempting to create AudioContext at 16kHz when microphone is 48kHz
+- **Solution**: Use browser's default sample rate, then resample in JavaScript (not in AudioContext creation)
+
+**Problem: Microphone keeps switching between green/blue but no AI response**
+- **Cause**: Gemini not detecting turn completion (usually due to wrong sample rate)
+- **Check**: Terminal logs for `[Gemini] Turn complete detected: True`
+- **Solution**: Verify 16kHz resampling is working correctly
+
+### Model Selection
+
+Always use `gemini-2.5-flash-exp-native-audio-thinking-dialog` for live audio interviews:
+- Native audio understanding (not just speech-to-text)
+- Dialog-optimized for conversational turn-taking
+- Built-in Voice Activity Detection (VAD)
+- Better at following system instructions about interview flow
+
 ## Important Notes
 
 ### Recent Changes
 - Removed URL ingestion functionality - now focused on text paste only
-- Implemented Gemini AI extraction in `/extract_requirements` endpoint
-- Both `/extract_requirements` and `/generate_plan` now use `gemini-2.0-flash-exp` model
-- Added fallback behavior: `/extract_requirements` returns empty arrays on failure, `/generate_plan` returns deterministic questions
+- Upgraded to `gemini-2.5-flash-exp-native-audio-thinking-dialog` for all Gemini operations
 - Implemented live audio interview via WebSocket proxy to Gemini Live API
-- Added `useAudioStream` hook for bidirectional audio streaming with proper queueing
-- Created `/interview` page with real-time conversation UI
+- Added client-side audio resampling (48kHz → 16kHz) for Gemini compatibility
+- Fixed SSL certificate verification with certifi for macOS/production environments
+- Added `useAudioStream` hook with proper audio format handling and playback queueing
+- Created `/interview` page with real-time conversation UI and visual feedback
 
 ### Git Commit Style
 Per `.claude.md` preferences:
@@ -339,7 +384,23 @@ Per `.claude.md` preferences:
 - Interview questions from `/plan` not yet passed to `/interview` - Gemini generates questions on the fly
 - No interview transcript recording or evaluation scoring yet
 - ScriptProcessorNode deprecated (works but should migrate to AudioWorklet in future)
+- Audio resampling uses simple linear interpolation (could use better algorithms for production)
+
+### Critical Dependencies
+
+**Python (api/requirements.txt):**
+- `fastapi` + `uvicorn` - WebSocket-capable web framework
+- `websockets==12.0` - For Gemini Live API connection
+- `certifi` - SSL certificate verification (REQUIRED for production/macOS)
+- `google-generativeai` - Gemini API client library
+- `pydantic` - Request/response validation
+
+**JavaScript (web/package.json):**
+- `next` - React framework with App Router
+- No external audio processing libraries (all done in native Web Audio API)
+- MediaPipe + OpenCV.js loaded from CDN at runtime
 
 ### Deployment
 - **Web**: Vercel (set root to `web/`, configure `NEXT_PUBLIC_API_BASE_URL`)
 - **API**: Render/Railway (build: `pip install -r requirements.txt`, start: `uvicorn app:app --host 0.0.0.0 --port $PORT`)
+  - **IMPORTANT**: Ensure `certifi` is in requirements.txt for SSL support
