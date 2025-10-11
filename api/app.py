@@ -413,13 +413,17 @@ async def generate_plan(request: GeneratePlanRequest, demo: bool = False):
 
 
 @app.websocket("/ws/interview")
-async def websocket_interview(websocket: WebSocket):
+async def websocket_interview(websocket: WebSocket, role: str = "this position", company: str = ""):
     """
     WebSocket endpoint for live audio interview streaming.
     Proxies audio between client and Gemini Live API.
+
+    Query params:
+    - role: Job role/title
+    - company: Company name (optional)
     """
     await websocket.accept()
-    print("WebSocket connection accepted")
+    print(f"WebSocket connection accepted - Role: {role}, Company: {company}")
 
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
@@ -452,7 +456,7 @@ async def websocket_interview(websocket: WebSocket):
                 },
                 "system_instruction": {
                     "parts": [{
-                        "text": "You are an AI interviewer conducting a mock job interview. Your role is to:\n1. Greet the candidate warmly and introduce yourself\n2. Ask interview questions ONE AT A TIME and wait for responses\n3. Listen carefully to each answer before asking the next question\n4. Provide brief follow-up questions when appropriate\n5. Be professional but conversational\n6. Keep your responses concise and clear\n\nAlways speak your questions out loud - do not just list them. Ask one question, wait for the answer, then ask the next."
+                        "text": "You are an AI interviewer conducting a mock job interview. Listen carefully to the candidate's answers and respond thoughtfully. Ask ONE question at a time, wait for their complete answer, acknowledge what they said, and then ask the next question or follow-up. Be conversational and react naturally to their responses. Don't just read through a list of questions - have a real dialogue."
                     }]
                 }
             }
@@ -490,11 +494,28 @@ async def websocket_interview(websocket: WebSocket):
                 async for message in gemini_ws:
                     data = json.loads(message)
 
+                    # Log all message types for debugging
+                    message_types = list(data.keys())
+                    if "serverContent" not in data or "toolCall" in data or "toolCallCancellation" in data:
+                        print(f"Gemini message types: {message_types}")
+
                     # Check for audio in response
                     if "serverContent" in data:
                         server_content = data["serverContent"]
                         if "modelTurn" in server_content:
                             parts = server_content["modelTurn"].get("parts", [])
+                            print(f"Received modelTurn with {len(parts)} parts")
+
+                            # Log if there's text (means Gemini is responding to speech)
+                            for part in parts:
+                                if "text" in part:
+                                    print(f"Gemini text: {part['text'][:100]}...")
+                                if "inlineData" in part:
+                                    mime_type = part["inlineData"].get("mimeType", "unknown")
+                                    data_length = len(part["inlineData"].get("data", ""))
+                                    print(f"Gemini audio: mimeType={mime_type}, data_length={data_length}")
+
+                            # Send audio back
                             for part in parts:
                                 if "inlineData" in part:
                                     audio_b64 = part["inlineData"].get("data", "")
@@ -502,18 +523,29 @@ async def websocket_interview(websocket: WebSocket):
                                         # Decode and send to client
                                         audio_bytes = base64.b64decode(audio_b64)
                                         await websocket.send_bytes(audio_bytes)
+                                        print(f"Sent {len(audio_bytes)} bytes to client")
+
+                        # Check if Gemini detected speech
+                        if "turnComplete" in server_content:
+                            print("Gemini detected turn complete")
 
                     # Log other message types
                     if "setupComplete" in data:
                         print("Gemini setup complete")
 
                         # Send initial prompt to start the interview
+                        # Build personalized greeting
+                        if company:
+                            greeting = f"Hello! I'm ready to start the mock interview. Please introduce yourself as a Gemini AI assistant conducting a mock interview for the {role} position at {company}. Then ask me the first interview question."
+                        else:
+                            greeting = f"Hello! I'm ready to start the mock interview. Please introduce yourself as a Gemini AI assistant conducting a mock interview for the {role} position. Then ask me the first interview question."
+
                         initial_message = {
                             "client_content": {
                                 "turns": [{
                                     "role": "user",
                                     "parts": [{
-                                        "text": "Hello! I'm ready to start the mock interview. Please begin by introducing yourself and asking me the first question."
+                                        "text": greeting
                                     }]
                                 }],
                                 "turn_complete": True

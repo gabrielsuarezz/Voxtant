@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAudioStream } from '@/hooks/useAudioStream'
 import { Button } from '@/components/ui/button'
@@ -8,14 +8,34 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Logo } from '@/components/ui/logo'
 import { Mic, MicOff, Phone, PhoneOff, ArrowLeft, Radio, Shield } from 'lucide-react'
 
+interface JobData {
+  raw_text: string
+  title: string
+  source: string
+  role: string
+  skills_core: string[]
+  skills_nice: string[]
+  values: string[]
+  requirements: string[]
+}
+
 export default function InterviewPage() {
   const router = useRouter()
   const { connect, disconnect, connectionState, error, isSpeaking } = useAudioStream()
   const [isActive, setIsActive] = useState(false)
+  const [jobData, setJobData] = useState<JobData | null>(null)
+
+  useEffect(() => {
+    // Load job data from sessionStorage
+    const data = sessionStorage.getItem('jobData')
+    if (data) {
+      setJobData(JSON.parse(data))
+    }
+  }, [])
 
   const handleStart = async () => {
     try {
-      await connect()
+      await connect(jobData)
       setIsActive(true)
     } catch (err) {
       console.error('Failed to start interview:', err)

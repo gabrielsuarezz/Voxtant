@@ -7,8 +7,19 @@ import { useRef, useState, useCallback, useEffect } from 'react'
 
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error'
 
+interface JobData {
+  raw_text: string
+  title: string
+  source: string
+  role: string
+  skills_core: string[]
+  skills_nice: string[]
+  values: string[]
+  requirements: string[]
+}
+
 interface UseAudioStreamReturn {
-  connect: () => Promise<void>
+  connect: (jobData?: JobData | null) => Promise<void>
   disconnect: () => void
   connectionState: ConnectionState
   error: string | null
@@ -64,7 +75,7 @@ export function useAudioStream(): UseAudioStreamReturn {
     nextPlayTimeRef.current = 0
   }, [])
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(async (jobData?: JobData | null) => {
     try {
       setError(null)
       setConnectionState('connecting')
@@ -90,8 +101,15 @@ export function useAudioStream(): UseAudioStreamReturn {
 
       console.log('AudioContext sample rate:', audioContext.sampleRate)
 
-      // Create WebSocket connection
-      const wsUrl = `${WS_URL}/ws/interview`
+      // Create WebSocket connection with job data as query params
+      let wsUrl = `${WS_URL}/ws/interview`
+      if (jobData) {
+        const params = new URLSearchParams({
+          role: jobData.role || jobData.title || 'this position',
+          company: jobData.source || ''
+        })
+        wsUrl = `${wsUrl}?${params.toString()}`
+      }
       console.log('Connecting to WebSocket:', wsUrl)
       const ws = new WebSocket(wsUrl)
       wsRef.current = ws
