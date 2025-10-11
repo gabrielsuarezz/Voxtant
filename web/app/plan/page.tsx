@@ -228,15 +228,13 @@ export default function PlanPage() {
                 <Button
                   size="lg"
                   className="w-full text-lg h-14 gap-3 shadow-lg hover:shadow-xl transition-all duration-300"
-                  onClick={() => {
-                    alert('Interview feature coming soon!')
-                  }}
+                  onClick={() => router.push('/interview')}
                 >
                   <PlayCircle className="w-5 h-5" />
                   Start Mock Interview
                 </Button>
                 <p className="text-sm text-muted-foreground text-center mt-4">
-                  Launch AI-powered interview session with real-time feedback
+                  Launch AI-powered interview session with real-time audio conversation
                 </p>
               </CardContent>
             </Card>

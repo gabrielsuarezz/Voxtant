@@ -112,6 +112,14 @@ cd web && npm run dev
     - Each question has: id, type, text, targets[]
     - Returns rubric with 3-5 evaluation criteria per question
     - Fallback: Returns 3 deterministic questions if GEMINI_API_KEY not set
+  - `WS /ws/interview` - Live audio interview streaming (WebSocket)
+    - Proxies bidirectional audio between client and Gemini Live API
+    - Connects to: `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent`
+    - Uses `gemini-2.0-flash-exp` model with AUDIO response modality
+    - Client sends: PCM audio chunks at native sample rate (44.1/48kHz)
+    - Gemini returns: PCM audio at 24kHz (base64-encoded in JSON messages)
+    - Initial prompt auto-sent after setup to trigger conversation start
+    - System instruction: Ask questions one at a time, speak out loud, be conversational
 
 - **CORS Configuration:**
   - Defaults to `http://localhost:3000` if `ALLOWED_ORIGINS` not set
@@ -123,6 +131,7 @@ cd web && npm run dev
   - `/` - Home page with text paste input for job postings
   - `/preview` - Display extracted job data (sessionStorage-based)
   - `/plan` - Generate and display interview questions with rubrics
+  - `/interview` - Live audio interview with Gemini AI via WebSocket
   - `/eq-sandbox` - EQ metrics testing sandbox with live webcam analysis
   - `/demo` - Presentation-ready demo mode with 4-step workflow
 
@@ -139,6 +148,7 @@ cd web && npm run dev
 - **Custom Hooks:**
   - `hooks/useWebcam.ts` - getUserMedia management, permission handling
   - `hooks/useEQ.ts` - rAF loop (~15 FPS) for video analysis, smoothing, OpenCV filtering
+  - `hooks/useAudioStream.ts` - WebSocket audio streaming, microphone capture, playback queueing
 
 - **State Management:**
   - Client-side only (useState, useRouter)
@@ -251,6 +261,46 @@ Presentation-ready demo workflow for offline/live presentations:
    - Mock EQ metrics that update every 2 seconds
    - Simulated transcript with realistic timing
 
+### Live Interview Architecture
+Real-time audio conversation with Gemini AI using WebSocket streaming:
+
+1. **WebSocket Flow (api/app.py `/ws/interview`):**
+   - Accept client WebSocket connection
+   - Connect to Gemini Live API via `websockets` library
+   - Send setup message with model config, voice (Puck), and system instruction
+   - Wait for `setupComplete` response from Gemini
+   - Send initial text prompt to trigger Gemini to start talking
+   - Run two concurrent tasks: `client_to_gemini()` and `gemini_to_client()`
+
+2. **Audio Format Handling:**
+   - **Client → Server**: Binary PCM chunks (Int16) at browser's native rate (48kHz typical)
+   - **Server → Gemini**: Base64-encoded PCM in JSON `realtime_input.media_chunks` messages
+   - **Gemini → Server**: Base64-encoded PCM at 24kHz in JSON `serverContent.modelTurn.parts.inlineData`
+   - **Server → Client**: Binary PCM chunks decoded from base64
+
+3. **Frontend Audio Streaming (hooks/useAudioStream.ts):**
+   - Creates AudioContext with browser's default sample rate (no forced 16kHz)
+   - Captures microphone via getUserMedia with echo cancellation, noise suppression
+   - Uses ScriptProcessorNode (deprecated but functional) to process audio in 4096-sample chunks
+   - Converts Float32 audio to Int16 PCM and sends via WebSocket
+   - Receives 24kHz PCM from server and queues playback sequentially
+   - Uses `nextPlayTimeRef` to schedule audio buffers without gaps/overlaps
+   - Volume detection triggers `isSpeaking` indicator
+
+4. **Interview Page (app/interview/page.tsx):**
+   - Visual states: disconnected, connecting, connected, error
+   - Speaking indicator with animated pulse when user talks
+   - Start/End interview controls
+   - Privacy notice about secure WebSocket connection
+   - Interview tips card with STAR method guidance
+
+5. **Key Technical Decisions:**
+   - No forced sample rate on microphone - use browser's native rate to avoid compatibility issues
+   - Audio buffers created at 24kHz (Gemini's output) for correct playback speed
+   - Sequential audio queueing prevents choppy/sped-up playback
+   - Initial prompt required to make Gemini start conversation proactively
+   - System instruction emphasizes "ask ONE question at a time" and "speak out loud"
+
 ### Type System
 - TypeScript interfaces defined in `web/lib/api-client.ts`
 - Pydantic models in `api/app.py` (BaseModel subclasses)
@@ -269,6 +319,9 @@ Presentation-ready demo workflow for offline/live presentations:
 - Implemented Gemini AI extraction in `/extract_requirements` endpoint
 - Both `/extract_requirements` and `/generate_plan` now use `gemini-2.0-flash-exp` model
 - Added fallback behavior: `/extract_requirements` returns empty arrays on failure, `/generate_plan` returns deterministic questions
+- Implemented live audio interview via WebSocket proxy to Gemini Live API
+- Added `useAudioStream` hook for bidirectional audio streaming with proper queueing
+- Created `/interview` page with real-time conversation UI
 
 ### Git Commit Style
 Per `.claude.md` preferences:
@@ -283,7 +336,9 @@ Per `.claude.md` preferences:
 - EQ metrics use simplified algorithms (gaze via eye landmark variance, expression via blendshape categories)
 - FaceLandmarker supports 1 face max in current configuration
 - OpenCV.js loaded from CDN (no offline fallback)
-- Interview execution (/interview route) not yet implemented
+- Interview questions from `/plan` not yet passed to `/interview` - Gemini generates questions on the fly
+- No interview transcript recording or evaluation scoring yet
+- ScriptProcessorNode deprecated (works but should migrate to AudioWorklet in future)
 
 ### Deployment
 - **Web**: Vercel (set root to `web/`, configure `NEXT_PUBLIC_API_BASE_URL`)

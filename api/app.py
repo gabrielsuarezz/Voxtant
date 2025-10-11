@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict
@@ -7,6 +7,9 @@ import os
 from dotenv import load_dotenv
 import google.generativeai as genai
 import json
+import asyncio
+import websockets
+import base64
 
 load_dotenv()
 
@@ -407,3 +410,133 @@ async def generate_plan(request: GeneratePlanRequest, demo: bool = False):
 
     # Use Gemini to generate questions
     return generate_gemini_plan(request.extracted, request.resume_text, api_key)
+
+
+@app.websocket("/ws/interview")
+async def websocket_interview(websocket: WebSocket):
+    """
+    WebSocket endpoint for live audio interview streaming.
+    Proxies audio between client and Gemini Live API.
+    """
+    await websocket.accept()
+    print("WebSocket connection accepted")
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        await websocket.close(code=1008, reason="GEMINI_API_KEY not configured")
+        return
+
+    gemini_ws = None
+
+    try:
+        # Connect to Gemini Live API
+        gemini_url = f"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key={api_key}"
+
+        print("Connecting to Gemini Live API...")
+        gemini_ws = await websockets.connect(gemini_url)
+        print("Connected to Gemini Live API")
+
+        # Send initial setup message to Gemini
+        setup_message = {
+            "setup": {
+                "model": "models/gemini-2.0-flash-exp",
+                "generation_config": {
+                    "response_modalities": ["AUDIO"],
+                    "speech_config": {
+                        "voice_config": {
+                            "prebuilt_voice_config": {
+                                "voice_name": "Puck"
+                            }
+                        }
+                    }
+                },
+                "system_instruction": {
+                    "parts": [{
+                        "text": "You are an AI interviewer conducting a mock job interview. Your role is to:\n1. Greet the candidate warmly and introduce yourself\n2. Ask interview questions ONE AT A TIME and wait for responses\n3. Listen carefully to each answer before asking the next question\n4. Provide brief follow-up questions when appropriate\n5. Be professional but conversational\n6. Keep your responses concise and clear\n\nAlways speak your questions out loud - do not just list them. Ask one question, wait for the answer, then ask the next."
+                    }]
+                }
+            }
+        }
+
+        await gemini_ws.send(json.dumps(setup_message))
+        print("Sent setup message to Gemini")
+
+        # Task to forward audio from client to Gemini
+        async def client_to_gemini():
+            try:
+                while True:
+                    audio_chunk = await websocket.receive_bytes()
+
+                    # Convert to base64 and send to Gemini
+                    audio_b64 = base64.b64encode(audio_chunk).decode('utf-8')
+                    message = {
+                        "realtime_input": {
+                            "media_chunks": [{
+                                "mime_type": "audio/pcm",
+                                "data": audio_b64
+                            }]
+                        }
+                    }
+                    await gemini_ws.send(json.dumps(message))
+
+            except WebSocketDisconnect:
+                print("Client disconnected")
+            except Exception as e:
+                print(f"Error client->gemini: {e}")
+
+        # Task to forward audio from Gemini to client
+        async def gemini_to_client():
+            try:
+                async for message in gemini_ws:
+                    data = json.loads(message)
+
+                    # Check for audio in response
+                    if "serverContent" in data:
+                        server_content = data["serverContent"]
+                        if "modelTurn" in server_content:
+                            parts = server_content["modelTurn"].get("parts", [])
+                            for part in parts:
+                                if "inlineData" in part:
+                                    audio_b64 = part["inlineData"].get("data", "")
+                                    if audio_b64:
+                                        # Decode and send to client
+                                        audio_bytes = base64.b64decode(audio_b64)
+                                        await websocket.send_bytes(audio_bytes)
+
+                    # Log other message types
+                    if "setupComplete" in data:
+                        print("Gemini setup complete")
+
+                        # Send initial prompt to start the interview
+                        initial_message = {
+                            "client_content": {
+                                "turns": [{
+                                    "role": "user",
+                                    "parts": [{
+                                        "text": "Hello! I'm ready to start the mock interview. Please begin by introducing yourself and asking me the first question."
+                                    }]
+                                }],
+                                "turn_complete": True
+                            }
+                        }
+                        await gemini_ws.send(json.dumps(initial_message))
+                        print("Sent initial prompt to Gemini")
+
+            except Exception as e:
+                print(f"Error gemini->client: {e}")
+
+        # Run both tasks concurrently
+        await asyncio.gather(
+            client_to_gemini(),
+            gemini_to_client()
+        )
+
+    except WebSocketDisconnect:
+        print("Client disconnected")
+    except Exception as e:
+        print(f"WebSocket error: {str(e)}")
+        await websocket.close(code=1011, reason=str(e))
+    finally:
+        if gemini_ws:
+            await gemini_ws.close()
+            print("Closed Gemini connection")
