@@ -23,7 +23,7 @@ Access at http://localhost:3000
 cd api
 python -m venv .venv
 
-# On Windows
+# On Window's
 .venv\Scripts\activate
 # On macOS/Linux
 source .venv/bin/activate
