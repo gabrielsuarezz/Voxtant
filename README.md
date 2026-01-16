@@ -1,6 +1,6 @@
 # Voxtant
 
-AI-powered mock interview platform for job seekers.
+AI-powered mock interview platform for job seeker's.
 
 ## Quick Start
 
